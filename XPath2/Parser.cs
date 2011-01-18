@@ -182,6 +182,8 @@ namespace XPath2
 
       /// <summary>
       /// Implements A | B.
+      /// 
+      /// Error: if ErrorPass, do error pass for depth.
       /// </summary>
       public static ParseAction Or(this ParseAction action, ParseAction nextAction) //, String errorMsg)
       {
@@ -201,7 +203,7 @@ namespace XPath2
             };
       }
 
-      // todo: use instead of above
+      // todo: use instead of above or maybe better: pushRequired or something in context.
       private static Boolean RunOptional(ParseContext c, ParseAction a)
       {
          Boolean tOldRequired = c.Required;
@@ -269,7 +271,7 @@ namespace XPath2
 
          XPath = Rule(() => tExpr.FollowedBy(tEOF));
 
-         tExpr = Rule(() => tExprSingle.FollowedBy((",".FollowedBy(tExprSingle)).Optional()));
+         tExpr = Rule(() => tExprSingle.FollowedBy((",".FollowedBy(tExprSingle)).ZeroOrMore()));
 
          tExprSingle = Rule(() => tForExpr.Or(tQuantifiedExpr).Or(tIfExpr).Or(tOrExpr).Error("expected 'if' or 'or'..."));
 
