@@ -3,313 +3,308 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 
-namespace XPath2
+namespace Parser
 {
-   public class ParseContextSnapshot 
+   public class ParseException : Exception
    {
-      public Int32 Position;
+      public ParseException(String msg) : base(msg) { }
+      public ParseException(String format, params Object[] args) : base(String.Format(format, args)) { }
    }
 
-   public class ParseContext 
+   public class EOFNode : ParseNode
    {
-      public ParseContextSnapshot Snapshot() 
+      public EOFNode()
       {
-         return new ParseContextSnapshot { Position = mCurrentPosition };
-      }
-
-      // Indicates if current context is required, or optional.
-      // may need a stack for this?
-      public Boolean Required;
-
-      public ParseContext Restore(ParseContextSnapshot snapshot) 
-      {
-         mCurrentPosition = snapshot.Position;
-         return this;
-      }
-
-      protected Int32 mCurrentPosition;
-      protected String mExpression;
-
-      public String Expression
-      {
-         get { return mExpression; }
-         set { mExpression = value; }
-      }
-
-      public Parser Parser;
-
-      // Advance ignoring whitespace and comments.
-      public void AdvanceIgnorable() 
-      {
-         AdvanceWhitespace();
-         // todo: comments
-         //if (mExpression[mCurrentPosition] == '(' && mExpression[mCurrentPosition + 1] == ':') // todo: array bounds
-         //   AdvanceComment();
-      }
-
-      public void AdvanceWhitespace()
-      {
-         while (mCurrentPosition < mExpression.Length && IsWhitespace(mExpression[mCurrentPosition]))
-            mCurrentPosition++;
-      }
-
-      protected Boolean IsWhitespace(Char pChar)
-      {
-         // todo: must follow proper rules
-         return Char.IsWhiteSpace(pChar);
-      }
-
-      // Advance parser, ensuring the expected string is parsed.
-      public Boolean Advance(String expected) 
-      {
-         Int32 j;
-         for (j = 0; j < expected.Length && mCurrentPosition < mExpression.Length && expected[j] == mExpression[mCurrentPosition]; mCurrentPosition++, j++)
-            ;
-         return j == expected.Length;
-      }
-
-      public Boolean AdvanceQName()
-      {
-         // todo: must do properly...
-         String tQName = null;
-         for (; mCurrentPosition < mExpression.Length; mCurrentPosition++)
+         this.GetDecisionTerminals = null; // todo: correct?
+         this.Parse = c =>
          {
-            Char tChar = mExpression[mCurrentPosition];
-            if (Char.IsLetter(tChar))
-               tQName += tChar;
-            else
-               break;
-         }
-         return tQName != null; // will want to return in the future...
+            if (c.Position != c.Expression.Length)
+               throw new ParseException("expected end of input at {0}", c.Position.ToString());
+         };
       }
    }
 
    public static class ParserExtensions
    {
-      public static ParseAction Optional(this ParseAction action)
+      private static void RaiseExpectedTerminals(ParseContext ctx, IEnumerable<String> terminals)
       {
-         return c =>
-            {
-               ParseContextSnapshot tSnapshot = c.Snapshot();
-
-               Boolean tOldRequired = c.Required;
-               c.Required = false;
-
-               if (!action(c))
-                  // we're optional, so must restore as we always return true.
-                  c.Restore(tSnapshot);
-
-               c.Required = tOldRequired;
-               return true;
-            };
+         // todo: add positional info
+         throw new ParseException("expected one of '{0}', found '{1}'", String.Join(", ", terminals), "foobar"); // todo
       }
 
-      public static ParseAction ZeroOrMore(this ParseAction action)
+      public static ParseNode Terminal(this String terminalStr)
       {
-         return c =>
+         return new ParseNode()
          {
-            ParseContextSnapshot tSnapshot;
-            Boolean tOldRequired = c.Required;
-            c.Required = false;
-            do
-            {
-               tSnapshot = c.Snapshot();
-            } while (action(c));
-            c.Restore(tSnapshot);
-            c.Required = tOldRequired;
-            return true;
-         };
-      }
-
-      public static ParseAction OneOrMore(this ParseAction action)
-      {
-         return c =>
-         {
-            if (action(c))
-            {
-               return ZeroOrMore(action)(c);
-            }
-            else // if required, the action will have thrown
-               return false;
-         };
-      }
-
-      public static ParseAction Terminal(this String terminalStr)
-      {
-         if (terminalStr == null)
-            throw new ArgumentNullException("terminal string is null");
-
-         return c =>
-         {
-            c.AdvanceIgnorable();
-            if (c.Advance(terminalStr))
-               return true;
-            else
-            {
-               if (c.Required)
-                  throw new Exception("expected " + terminalStr); // todo improve
-               return false;
-            }
-            //c.AdvanceIgnorable();
+            GetDecisionTerminals = () => new[] { terminalStr },
+            Parse = c => { c.Advance(terminalStr); }
          };
       }
 
       /// <summary>
-      /// Implements A B.
+      /// Same as .FollowedBy(new EOFNode()).
       /// </summary>
-      public static ParseAction FollowedBy(this ParseAction action, ParseAction nextAction)
+      /// <param name="node"></param>
+      /// <returns></returns>
+      public static ParseNode EOF(this ParseNode node)
       {
-         if (action == null)
-            throw new ArgumentNullException("action is null");
-
-         return c => action(c) && nextAction(c);
+         return node.FollowedBy(new EOFNode());
       }
 
-      public static ParseAction FollowedBy(this String terminalStr, ParseAction action)
+      public static ParseNode Or(this String terminalStr, String otherTerminal)
       {
-         return FollowedBy(Terminal(terminalStr), action);
+         return Or(terminalStr.Terminal(), otherTerminal.Terminal());
       }
 
-      public static ParseAction FollowedBy(this ParseAction action, String terminalStr)
+      public static ParseNode Or(this ParseNode node, String terminalStr)
       {
-         return FollowedBy(action, Terminal(terminalStr));
+         return Or(node, terminalStr.Terminal());
       }
 
-      public static ParseAction FollowedBy(this String leftTerminal, String rightTerminal)
+      // todo: check count of params, do like followedby?
+      public static ParseNode Or(this ParseNode action, params ParseNode[] otherActions)
       {
-         return FollowedBy(Terminal(leftTerminal), Terminal(rightTerminal));
-      }
+         Dictionary<String, ParseNode> tParseTable = new Dictionary<String, ParseNode>();
+         foreach (String tTerminal in action.GetDecisionTerminals())
+            tParseTable.Add(tTerminal, action); // todo: better error handling if key found
+         foreach (ParseNode tOtherNode in otherActions)
+            foreach (String tTerminal in tOtherNode.GetDecisionTerminals())
+               tParseTable.Add(tTerminal, tOtherNode);
 
-      /// <summary>
-      /// Implements A | B.
-      /// 
-      /// Error: if ErrorPass, do error pass for depth.
-      /// </summary>
-      public static ParseAction Or(this ParseAction action, ParseAction nextAction) //, String errorMsg)
-      {
-         return c =>
+         return new ParseNode()
+         {
+            Optional = action.Optional || otherActions.Any(n => n.Optional),
+            GetDecisionTerminals = () => tParseTable.Keys.ToArray(),
+            Parse = c => 
             {
-               ParseContextSnapshot tSnapshot = c.Snapshot();
-               Boolean tOldRequired = c.Required;
-               c.Required = false;
-
-               Boolean tSuccess = action(c) || nextAction(c.Restore(tSnapshot));
-                 
-               //if (!tSuccess && c.Required)
-               //   throw new Exception(errorMsg); // improve
-
-               c.Required = tOldRequired;
-               return tSuccess;
-            };
+               // Find correct branch, follow it.
+               String tCurrentTerminal = c.Peek();
+               ParseNode tActiveNode;
+               if (tParseTable.TryGetValue(tCurrentTerminal, out tActiveNode))
+                  tActiveNode.Parse(c);
+               else // it may be that we peeked too much, do a binary search:
+               {
+                  // todo: omg, do this better, perhaps not even using a dict
+                  tActiveNode = (from n in tParseTable.Keys where tCurrentTerminal.StartsWith(n) select tParseTable[n]).FirstOrDefault();
+                  if (tActiveNode == null)
+                     RaiseExpectedTerminals(c, tParseTable.Keys);
+                  else
+                     tActiveNode.Parse(c);
+               }
+            }
+         };
       }
 
-      // todo: use instead of above or maybe better: pushRequired or something in context.
-      private static Boolean RunOptional(ParseContext c, ParseAction a)
+      private static T[] Merge<T>(this T[] left, T[] right)
       {
-         Boolean tOldRequired = c.Required;
-         Boolean tResult = a(c);
-         c.Required = tOldRequired;
+         T[] tResult = new T[left.Length + right.Length];
+         Array.Copy(left, tResult, left.Length);
+         Array.Copy(right, 0, tResult, left.Length, right.Length);
          return tResult;
       }
 
-      public static ParseAction Or(this String leftTerm, String rightTerm)
+      public static ParseNode FollowedBy(this ParseNode node, ParseNode otherNode)
       {
-        // return Or(Terminal(leftTerm), Terminal(rightTerm)); //, String.Format("expected '{0}' or '{1}'", leftTerm, rightTerm));
+         return new ParseNode()
+         {
+            Optional = node.Optional && otherNode.Optional,
 
-         return Or(Terminal(leftTerm), Terminal(rightTerm)).Error(String.Format("expected '{0}' or '{1}'", leftTerm, rightTerm));
+            // todo: this does the merge, all the time, redo via closure
+            GetDecisionTerminals = node.Optional ? () => node.GetDecisionTerminals().Merge(otherNode.GetDecisionTerminals())
+                                                 : node.GetDecisionTerminals,
+
+            Parse = c =>
+            {
+               node.Parse(c);
+               otherNode.Parse(c);
+            }
+         };
       }
 
-      public static ParseAction Error(this ParseAction action, String msg)
+      public static ParseNode FollowedBy(this String terminalStr, ParseNode node)
       {
-         return c =>
+         return terminalStr.Terminal().FollowedBy(node);
+      }
+
+      // todo: can do this much more efficiently, ie create a parsenode, then iterate others and call parse etc.
+      public static ParseNode FollowedBy(this ParseNode node, ParseNode otherNode, params Object[] others)
+      {
+         ParseNode tFirstNode = node.FollowedBy(otherNode);
+         foreach (Object tNode in others)
+            if (tNode is String)
+               tFirstNode = tFirstNode.FollowedBy(Terminal((String)tNode));
+            else
+               tFirstNode = tFirstNode.FollowedBy((ParseNode)tNode);
+         return tFirstNode;
+      }
+
+      public static ParseNode FollowedBy(this String node, String terminalStr, params Object[] others)
+      {
+         return FollowedBy(Terminal(node), Terminal(terminalStr), others);
+      }
+
+      public static ParseNode FollowedBy(this String terminalStr, ParseNode node, params Object[] others)
+      {
+         return FollowedBy(Terminal(terminalStr), node, others);
+      }
+
+      public static ParseNode FollowedBy(this ParseNode node, String terminalStr, params Object[] others)
+      {
+         return FollowedBy(node, Terminal(terminalStr), others);
+      }
+
+      private static ParseNode ParseN(this ParseNode node, Int32 requiredCount, Int32 upperBound)
+      {
+         // A hashset would do here.
+         Dictionary<String, ParseNode> tParseTable = new Dictionary<string, ParseNode>();
+
+         foreach (String tTerminal in node.GetDecisionTerminals())
+            tParseTable.Add(tTerminal, node);
+
+         return new ParseNode()
          {
-            Boolean tResult = action(c);
+            Optional = requiredCount == 0,
+            GetDecisionTerminals = node.GetDecisionTerminals,
+            Parse = c =>
+            {
+               // Parse minimal count.
+               for (Int32 i = 0; i < requiredCount; i++)
+                  node.Parse(c); // simply go in
 
-            if (!tResult && c.Required)
-               throw new Exception(msg); // todo: improve
-
-            return tResult;
+               // Parse optional max count.
+               Int32 tCountLeft = (upperBound == Int32.MaxValue ? Int32.MaxValue : (upperBound - requiredCount));
+               for (Int32 i = 0; i < tCountLeft && tCountLeft > 0; i++)
+               {
+                  String tCurrentTerminal = c.Peek();
+                  if (tParseTable.ContainsKey(tCurrentTerminal))
+                     node.Parse(c);
+                  else
+                     break; // we're done
+               }
+            }
          };
+      }
+
+      public static ParseNode Optional(this ParseNode node)
+      {
+         return ParseN(node, 0, 1);
+      }
+
+      public static ParseNode ZeroOrMore(this ParseNode node)
+      {
+         return ParseN(node, 0, Int32.MaxValue);
+      }
+
+      public static ParseNode OneOrMore(this ParseNode node)
+      {
+         return ParseN(node, 1, Int32.MaxValue);
       }
    }
 
-   
-   public delegate Boolean ParseAction(ParseContext ctx);
-
-   public class Parser
+   public class ParseContext
    {
-      public Boolean Parse(String xpath2Expression)
+      public ParseContext()
       {
-         return XPath(new ParseContext()
+         Position = 0;
+      }
+
+      public String Expression;
+      public String CurrentToken;
+
+      public Int32 Position { get; protected set; }
+
+      /// <summary>
+      /// Advances to the next token, ignoring interleaved whitespace.
+      /// Updates the CurrentToken.
+      /// </summary>
+      /// <returns></returns>
+      public String Advance() 
+      {
+         // Advance interleaved characters such as whitespace and/or comments.
+         AdvanceInterleaved();
+
+         // Return the next token.
+         return (CurrentToken = AdvanceToken());
+      }
+
+      /// <summary>
+      /// Advance, raising an exception if the found terminal does not match the string found.
+      /// Updates CurrentToken.
+      /// </summary>
+      /// <param name="str"></param>
+      /// <returns></returns>
+      public String Advance(String str) 
+      {
+         if (str == null)
+            throw new ArgumentNullException("Advance: str is null");
+
+         AdvanceInterleaved();
+
+         Int32 i;
+         for (i = 0; i < str.Length && Position < Expression.Length && str[i] == Expression[Position]; i++, Position++) ;
+
+         if (i != str.Length)
+            throw new ParseException("expected '{0}' around position {1}", str, Position.ToString()); // todo: improve with actual pos
+
+         return (CurrentToken = str);
+      }
+      
+      /// <summary>
+      /// Peeks: returns the next token that would be returned were Advance called.
+      /// </summary>
+      /// <returns></returns>
+      // todo: employ peek caching?
+      public String Peek()
+      {
+         Int32 tOldPos = Position;
+         String tResult = Advance(); // todo: dont set currentotken.....
+         Position = tOldPos;
+         return tResult;
+      }
+
+      protected virtual void AdvanceInterleaved() { }
+
+      /// <summary>
+      /// Used to parse "simple" tokens, language constructs.
+      /// Things like strings, numbers etc. should be coded directly. In other words, this should parse
+      /// any parts of the BNF contained in quotes.
+      /// 
+      /// Default implementation parses according to Char.IsLetter || Char.IsDigit || Char.IsSymbol.
+      /// </summary>
+      /// <returns></returns>
+      protected virtual String AdvanceToken()
+      {
+         String tResult = "";
+         for (; Position < Expression.Length; Position++)
          {
-            Parser = this, Expression = xpath2Expression, Required = true
-         });
+            Char tChar = Expression[Position];
+            if (Char.IsLetter(tChar) || Char.IsDigit(tChar) || Char.IsSymbol(tChar))
+               tResult += tChar;
+            else
+               break;
+         }
+         return tResult;
       }
+   }
 
-      ParseAction XPath;
+   //public class ParseNode_Or : ParseNode
+   //{
 
-      public Parser()
-      {
+   //}
 
-         //Func<Func<ParseAction>, ParseAction> ForwardDeclare = a => a();
+   //public class ParseNode
+   //{
+   //   public virtual String[] GetDecisionTerminals() { throw new NotImplementedException("todo"); }
+   //   public void Parse(ParseContext ctx)
+   //   {
 
-         // Allows for forward declarations of symbols.
-         Func<Func<ParseAction>, ParseAction> Rule = f => c => f()(c);
+   //   }
+   //}
 
-         // Define grammar symbols:
-         ParseAction tExpr = null,
-            tExprSingle = null,
-            tForExpr = null,
-            tQuantifiedExpr = null,
-            tIfExpr = null,
-            tOrExpr = null,
-            tSimpleForClause = null,
-            tVarName = null,
-            tAndExpr = null,
-            tComparisonExpr = null,
-            tEOF = null;
-
-         XPath = Rule(() => tExpr.FollowedBy(tEOF));
-
-         tExpr = Rule(() => tExprSingle.FollowedBy((",".FollowedBy(tExprSingle)).ZeroOrMore()));
-
-         tExprSingle = Rule(() => tForExpr.Or(tQuantifiedExpr).Or(tIfExpr).Or(tOrExpr).Error("expected 'if' or 'or'..."));
-
-         tForExpr = Rule(() => tSimpleForClause.FollowedBy("return".FollowedBy(tExprSingle)).Error("expected for clause"));
-
-         tSimpleForClause = Rule(() => "for".FollowedBy("$").FollowedBy(tVarName).FollowedBy("in").FollowedBy(tExprSingle).FollowedBy(
-            (",".FollowedBy("$").FollowedBy(tVarName).FollowedBy("in").FollowedBy(tExprSingle)).Optional()).Error("expected 'for'"));
-
-         tQuantifiedExpr = Rule(() => "some".Or("every").FollowedBy("$").FollowedBy(tVarName).FollowedBy("in").FollowedBy(tExprSingle)
-            .FollowedBy((",".FollowedBy("$").FollowedBy(tVarName).FollowedBy("in").FollowedBy(tExprSingle)).Optional())
-            .FollowedBy("satisfies").FollowedBy(tExprSingle));
-
-         // todo: comment check (:, could do that in terminal symbol.
-         tIfExpr = Rule(() => "if".FollowedBy("(").FollowedBy(tExpr).FollowedBy(")").FollowedBy("then").FollowedBy(tExprSingle).FollowedBy("else").FollowedBy(tExprSingle).Error("expected if clause"));
-
-         tOrExpr = Rule(() => tAndExpr.FollowedBy(("or".FollowedBy(tAndExpr)).Optional()).Error("expected or clause"));
-
-         tAndExpr = Rule(() => tComparisonExpr.FollowedBy(("and".FollowedBy(tComparisonExpr)).Optional()).Error("expected and clause"));
-
-         tComparisonExpr = Rule(() => "foo".Terminal());
-
-
-         // todo: more work
-         tVarName = c => c.AdvanceQName();
-         tEOF = c => true; // todo: parse whitespace / comments, then test for end of input
-
-         //tSimpleForClause = "for".FollowedBy("$".FollowedBy(tVarName.FollowedBy("in".FollowedBy(tExprSingle.FollowedBy(
-         //   (",".FollowedBy("$".FollowedBy(tVarName.FollowedBy("in".FollowedBy(tExprSingle))))).Optional().FollowedBy("satisfies"))))));
-      }
-
-      public void ParseWhitespace(ParseContext ctx)
-      {
-         // to implement: ignore whitespace
-      }
-
-      public void ParseComment(ParseContext ctx)
-      {
-         // to implement: ignore a comment
-      }
+   public class ParseNode
+   {
+      public Boolean Optional = false;
+      public Func<String[]> GetDecisionTerminals;
+      public Action<ParseContext> Parse;
    }
 }
