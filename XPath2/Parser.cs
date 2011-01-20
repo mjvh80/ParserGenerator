@@ -307,4 +307,52 @@ namespace Parser
       public Func<String[]> GetDecisionTerminals;
       public Action<ParseContext> Parse;
    }
+
+   // Idea:
+   // A symbolnode is defined by the Rule method.
+   // A -> B
+   // B -> A 'a'
+   // D -> A | B
+   // The above would be detected.
+   public class SymbolNode : ParseNode
+   {
+      protected enum PrimingState { None, Priming, Primed };
+
+      public Func<ParseNode> Primer;
+      protected PrimingState State = PrimingState.None;
+
+      public SymbolNode()
+      {
+         GetDecisionTerminals = () => 
+         {
+            if (State == PrimingState.Priming)
+               throw new Exception("circular grammar");
+            else if (State == PrimingState.None)
+            {
+               return this.Prime().GetDecisionTerminals();
+            }
+
+            throw new InvalidOperationException();
+         };
+         Parse = c => { throw new Exception("no parse method defined"); };
+      }
+
+      public virtual ParseNode Prime()
+      {
+         if (this.State == PrimingState.Primed)
+            return this;
+
+         if (this.State == PrimingState.Priming)
+            throw new Exception("attempt to prime priming node");// todo
+
+         this.State = PrimingState.Priming;
+
+         ParseNode tPrimeNode = Primer();
+         this.GetDecisionTerminals = tPrimeNode.GetDecisionTerminals;
+         this.Parse = tPrimeNode.Parse;
+
+         this.State = PrimingState.Primed;
+         return tPrimeNode;
+      }
+   }
 }

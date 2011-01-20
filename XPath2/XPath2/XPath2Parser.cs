@@ -88,11 +88,23 @@ namespace XPath2.Parser
 
       public XPath2Parser()
       {
+         List<SymbolNode> tPrimeTargets = new List<SymbolNode>();
+
+         //Func<Func<ParseNode>, ParseNode> Rule = f =>
+         //   new ParseNode()
+         //   {
+         //      GetDecisionTerminals = () => f().GetDecisionTerminals(),
+         //      Parse = c => f().Parse(c)
+         //   };
+
          Func<Func<ParseNode>, ParseNode> Rule = f =>
-            new ParseNode()
             {
-               GetDecisionTerminals = () => f().GetDecisionTerminals(),
-               Parse = c => f().Parse(c)
+               SymbolNode tNode = new SymbolNode()
+               {
+                  Primer = f
+               };
+               tPrimeTargets.Add(tNode);
+               return tNode;
             };
 
          // Define grammar symbols:
@@ -150,7 +162,7 @@ namespace XPath2.Parser
          tComparisonExpr = Rule(() => tRangeExpr.FollowedBy(tValueComp.Or(tGeneralComp, tNodeComp).FollowedBy(tRangeExpr).Optional()));
 
          tRangeExpr = Rule(() => tAdditiveExpr.FollowedBy("to".FollowedBy(tAdditiveExpr).Optional()));
-         tAdditiveExpr = Rule(() => tMultiplicativeExpr.FollowedBy("+".Or("-").FollowedBy(tMultiplicativeExpr).ZeroOrMore()));
+         tAdditiveExpr = Rule(() => tMultiplicativeExpr.FollowedBy("-".Or("+").FollowedBy(tMultiplicativeExpr).ZeroOrMore()));
          tMultiplicativeExpr = Rule(() => tUnionExpr.FollowedBy("*".Or("div").Or("idiv").Or("mod").FollowedBy(tUnionExpr).ZeroOrMore()));
          tUnionExpr = Rule(() => tIntersectExceptExpr.FollowedBy("union".Or("|").FollowedBy(tIntersectExceptExpr).ZeroOrMore()));
          tIntersectExceptExpr = Rule(() => tInstanceofExpr.FollowedBy("intersect".Or("except").FollowedBy(tInstanceofExpr).ZeroOrMore()));
@@ -158,7 +170,7 @@ namespace XPath2.Parser
          tTreatExpr = Rule(() => tCastableExpr.FollowedBy("treat".FollowedBy("as", tSequenceType).Optional()));
          tCastableExpr = Rule(() => tCastExpr.FollowedBy("castable".FollowedBy("as", tSingleType).Optional()));
          tCastExpr = Rule(() => tUnaryExpr.FollowedBy("cast".FollowedBy("as", tSingleType).Optional()));
-         tUnaryExpr = Rule(() => "-".Or("+").ZeroOrMore().FollowedBy(tValueExpr));
+         tUnaryExpr = Rule(() => "+".Or("-").ZeroOrMore().FollowedBy(tValueExpr));
          tValueExpr = Rule(() => tPathExpr);
 
          tGeneralComp = "=".Or("!=").Or("<").Or("<=").Or(">").Or(">="); // todo: params overload
@@ -184,6 +196,11 @@ namespace XPath2.Parser
          //ExprBaz = Rule(() => "baz".Terminal());
          //ExprZab = Rule(() => "zab".Terminal());
 
+
+         // Prime.
+         foreach (SymbolNode tSymbol in tPrimeTargets)
+            tSymbol.Prime();
+       //  ((SymbolNode)Root).Prime();
       }
 
       public void Parse(String expr)
