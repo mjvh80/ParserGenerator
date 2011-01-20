@@ -15,6 +15,7 @@ namespace Parser
    {
       public EOFNode()
       {
+         this.Label = "EOF";
          this.GetDecisionTerminals = null; // todo: correct?
          this.Parse = c =>
          {
@@ -32,11 +33,32 @@ namespace Parser
          throw new ParseException("expected one of '{0}', found '{1}'", String.Join(", ", terminals), "foobar"); // todo
       }
 
+      // TODO: check ok
+      // todo: experimental
+      // as we're needing lookahead, we can assume that decision terminals were needed, ie we can call GetDecisionTe..
+      public static ParseNode Lookahead(this ParseNode node, String lookaheadTerminal)
+      {
+         return null;
+         // not possible, i think, perhaps could extend GetDecisionTerminals, with a level.
+         // The lookahead would set the decision terminal for a lookahead level.
+      }
+
+      public static ParseNode Not(this ParseNode node, ParseNode notNode)
+      {
+         // decision terminals: node, optional is an error
+         // parse: node.parse, then negation parse on notNode -> extra mode which indicates parsing should fail if flag said
+         // and parse method succeeds
+         // how?
+         return null;
+      }
+
       public static ParseNode Terminal(this String terminalStr)
       {
          return new ParseNode()
          {
-            GetDecisionTerminals = () => new[] { terminalStr },
+            Label = "TERMINAL(" + terminalStr + ")",
+            GetDecisionTerminals = () => new[] { 
+               terminalStr },
             Parse = c => { c.Advance(terminalStr); }
          };
       }
@@ -61,6 +83,18 @@ namespace Parser
          return Or(node, terminalStr.Terminal());
       }
 
+      private static String OrLabels(ParseNode[] tArray)
+      {
+         String tResult = "";
+         for (Int32 i = 0; i < tArray.Length; i++)
+         {
+            tResult += tArray[i].Label;
+            if (i != tArray.Length - 1)
+               tResult += ", ";
+         }
+         return tResult;
+      }
+
       // todo: check count of params, do like followedby?
       public static ParseNode Or(this ParseNode action, params ParseNode[] otherActions)
       {
@@ -73,6 +107,7 @@ namespace Parser
 
          return new ParseNode()
          {
+            Label = "OR(" + action.Label + OrLabels(otherActions) + ")",
             Optional = action.Optional || otherActions.Any(n => n.Optional),
             GetDecisionTerminals = () => tParseTable.Keys.ToArray(),
             Parse = c => 
@@ -107,6 +142,7 @@ namespace Parser
       {
          return new ParseNode()
          {
+            Label = "FOLLOW(" + node.Label + ", " + otherNode.Label + ")",
             Optional = node.Optional && otherNode.Optional,
 
             // todo: this does the merge, all the time, redo via closure
@@ -156,13 +192,11 @@ namespace Parser
       private static ParseNode ParseN(this ParseNode node, Int32 requiredCount, Int32 upperBound)
       {
          // A hashset would do here.
-         Dictionary<String, ParseNode> tParseTable = new Dictionary<string, ParseNode>();
-
-         foreach (String tTerminal in node.GetDecisionTerminals())
-            tParseTable.Add(tTerminal, node);
+         Dictionary<String, ParseNode> tParseTable = null; // new Dictionary<string, ParseNode>();
 
          return new ParseNode()
          {
+            Label = "OPTIONAL(" + node.Label + ")",
             Optional = requiredCount == 0,
             GetDecisionTerminals = node.GetDecisionTerminals,
             Parse = c =>
@@ -175,6 +209,15 @@ namespace Parser
                Int32 tCountLeft = (upperBound == Int32.MaxValue ? Int32.MaxValue : (upperBound - requiredCount));
                for (Int32 i = 0; i < tCountLeft && tCountLeft > 0; i++)
                {
+                  // Lazily initialize parse table, should only call decision nodes if needed!
+                  if (tParseTable == null) // todo: move out of loop
+                  {
+                     // todo: i believe this branch isnt used, test with grammar!
+                     tParseTable = new Dictionary<string, ParseNode>();
+                     foreach (String tTerminal in node.GetDecisionTerminals())
+                        tParseTable.Add(tTerminal, node);
+                  }
+
                   String tCurrentTerminal = c.Peek();
                   if (tParseTable.ContainsKey(tCurrentTerminal))
                      node.Parse(c);
@@ -183,6 +226,11 @@ namespace Parser
                }
             }
          };
+      }
+
+      public static ParseNode Optional(this String terminalStr)
+      {
+         return Optional(terminalStr.Terminal());
       }
 
       public static ParseNode Optional(this ParseNode node)
@@ -303,6 +351,8 @@ namespace Parser
 
    public class ParseNode
    {
+      public String Label; // used for debugging only todo: can use a class type for each type of node (?)
+
       public Boolean Optional = false;
       public Func<String[]> GetDecisionTerminals;
       public Action<ParseContext> Parse;
@@ -334,7 +384,24 @@ namespace Parser
 
             throw new InvalidOperationException();
          };
-         Parse = c => { throw new Exception("no parse method defined"); };
+         Parse = c => 
+         {
+            switch (State)
+            {
+               case PrimingState.None:
+                  this.Prime().Parse(c);
+                  break;
+
+               // No parsing should be possible during priming.
+               case PrimingState.Priming:
+                  throw new InvalidOperationException();
+
+               case PrimingState.Primed:
+                  this.Parse(c);
+                  break;
+            }
+          //  throw new Exception("no parse method defined"); 
+         };
       }
 
       public virtual ParseNode Prime()
@@ -350,6 +417,7 @@ namespace Parser
          ParseNode tPrimeNode = Primer();
          this.GetDecisionTerminals = tPrimeNode.GetDecisionTerminals;
          this.Parse = tPrimeNode.Parse;
+         this.Label = tPrimeNode.Label;
 
          this.State = PrimingState.Primed;
          return tPrimeNode;

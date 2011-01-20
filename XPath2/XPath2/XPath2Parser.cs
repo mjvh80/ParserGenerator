@@ -131,7 +131,17 @@ namespace XPath2.Parser
             tValueExpr = null,
             tSequenceType = null,
             tSingleType = null,
-            tPathExpr = null;
+            tPathExpr = null, tForwardAxis = null, tReverseAxis = null, tAbbrevForwardStep = null, tNodeTest = null,
+            tKindTest = null, tNameTest = null, tRelativePathExpr = null, tStepExpr = null, tFilterExpr = null, tAxisStep = null,
+            tReverseStep = null, tPredicateList = null, tForwardStep = null, tAbbrevReverseStep = null,
+            tQName = null, tWildCard = null, tPrimaryExpr = null, tPredicate = null,
+            tLiteral = null, tVarRef = null, tParenthesizedExpr = null, tContextItemExpr = null, tFunctionCall = null,
+            tNumericLiteral = null, tStringLiteral = null, tIntegerLiteral = null, tDecimalLiteral = null, tDoubleLiteral = null,
+            tOccurrenceIndicator = null, tAtomicType = null, tItemType = null,
+            tAnyKindTest = null, tDocumentTest = null, tCommentTest = null, tTextTest = null, tPITest = null, tNCName = null,
+            tAttributeTest = null, tAttribNameOrWildcard = null, tAttributeName = null,
+            tElementTest = null, tElementNameOrWildcard = null, tElementName = null, tTypeName = null,
+            tSchemaElementTest = null, tElementDeclaration = null, tSchemaAttributeTest = null, tAttributeDeclaration = null;
 
          Root = Rule(() => tExpr.EOF());
 
@@ -177,15 +187,123 @@ namespace XPath2.Parser
          tValueComp = "eq".Or("ne").Or("lt").Or("le").Or("gt").Or("ge");
          tNodeComp = "is".Or("<<").Or(">>");
 
+         tPathExpr = Rule(() => "/".FollowedBy(tRelativePathExpr.Optional()).Or("//".FollowedBy(tRelativePathExpr)).Or(tRelativePathExpr));
+
+         tRelativePathExpr = Rule(() => tStepExpr.FollowedBy("/".Or("//").FollowedBy(tStepExpr).ZeroOrMore()));
+
+         tStepExpr = Rule(() => tFilterExpr.Or(tAxisStep));
+
+         tAxisStep = Rule(() => tReverseStep.Or(tForwardStep).FollowedBy(tPredicateList));
+
+         tForwardStep = Rule(() => tForwardAxis.FollowedBy(tNodeTest).Or(tAbbrevForwardStep));
+
+         tForwardAxis = Rule(() => "child".FollowedBy("::").Or("descendant".FollowedBy("::")).Or("attribute".FollowedBy("::")).Or("self".FollowedBy("::")).
+            Or("descendant-or-self".FollowedBy("::")).Or("following-sibling".FollowedBy("::")).Or("following".FollowedBy("::")).Or("namespace".FollowedBy("::")));
+
+         tReverseStep = Rule(() => tReverseAxis.FollowedBy(tNodeTest).Or(tAbbrevReverseStep));
+
+         // todo: rule not necessary..
+         tReverseAxis = Rule(() => "parent".FollowedBy("::").Or("ancestor".FollowedBy("::")).Or("preceding-sibling".FollowedBy("::")).Or("preceding".FollowedBy("::")).Or("ancestor-or-self".FollowedBy("::")));
+
+         tAbbrevForwardStep = Rule(() => "@".Optional().FollowedBy(tNodeTest));
+
+         tAbbrevReverseStep = "..".Terminal();
+
+         tNodeTest = Rule(() => tKindTest.Or(tNameTest));
+
+         tNameTest = Rule(() => tQName.Or(tWildCard));
+
+         // tWildCard is handcoded, due to explicit whitespace annotation:
+         tWildCard = "*".Terminal(); // TODO
+         // idea: introduce a special symbol which matches *any* lookahead not matched elsewhere, say ___ANY___ (as NCName should match anything..)
+         //tWildCard = Rule(() => "*".Or(new ParseNode() { Optional = true, GetDecisionTerminals = { throw new Exception("too many choices"); }, Parse = 
+         //}).Or(new ParseNode() { }));
+
+         tFilterExpr = Rule(() => tPrimaryExpr.FollowedBy(tPredicateList));
+
+         tPredicateList = Rule(() => tPredicate.ZeroOrMore());
+
+         tPredicate = Rule(() => "[".FollowedBy(tExpr).FollowedBy("]"));
+
+         tPrimaryExpr = Rule(() => tLiteral.Or(tVarRef, tParenthesizedExpr, tContextItemExpr, tFunctionCall));
+
+         tLiteral = Rule(() => tNumericLiteral.Or(tStringLiteral));
+
+         tNumericLiteral = Rule(() => tIntegerLiteral.Or(tDecimalLiteral, tDoubleLiteral));
+
+         tVarRef = Rule(() => "$".FollowedBy(tVarName));
+
+         tParenthesizedExpr = Rule(() => "(".FollowedBy(tExpr.Optional()).FollowedBy(")"));
+
+         tContextItemExpr = ".".Terminal();
+
+         tFunctionCall = Rule(() => tQName.FollowedBy("(", tExprSingle.FollowedBy(",".FollowedBy(tExprSingle).ZeroOrMore()).Optional(), ")"));
+
+         tSingleType = Rule(() => tAtomicType.FollowedBy("?".Optional()));
+
+         tSequenceType = Rule(() => "empty-sequence".FollowedBy("(", ")").Or(tItemType.FollowedBy(tOccurrenceIndicator.Optional())));
+
+         tOccurrenceIndicator = "?".Or("+").Or("*");
+
+         tItemType = Rule(() => tKindTest.Or("item".FollowedBy("(", ")"), tAtomicType));
+
+         tAtomicType = Rule(() => tQName);
+
+         tKindTest = Rule(() => tDocumentTest.Or(tElementTest, tAttributeTest, tSchemaElementTest, tSchemaAttributeTest, 
+            tPITest, tCommentTest, tTextTest, tAnyKindTest));
+
+         tAnyKindTest = "node".FollowedBy("(", ")");
+
+         tDocumentTest = Rule(() => "document-node".FollowedBy("(", tElementTest.Or(tSchemaElementTest).Optional(), ")"));
+
+         tTextTest = "text".FollowedBy("(", ")");
+
+         tCommentTest = "comment".FollowedBy("(", ")");
+
+         tPITest = Rule(() => "processing-instruction".FollowedBy("(", tNCName.FollowedBy(tStringLiteral).Optional(), ")"));
+
+         tAttributeTest = Rule(() => 
+            "attribute".FollowedBy("(", tAttribNameOrWildcard.FollowedBy(",".FollowedBy(tTypeName).Optional()).Optional(), ")" ));
+
+         tAttribNameOrWildcard = Rule(() => tAttributeName.Or("*"));
+
+         tSchemaAttributeTest = Rule(() => "schema-attribute".FollowedBy("(", tAttributeDeclaration, ")"));
+
+         tAttributeDeclaration = Rule(() => tAttributeName);
+
+         tElementTest = Rule(() => "element".FollowedBy("(", tElementNameOrWildcard.FollowedBy(",".FollowedBy(tTypeName, "?".Optional()).Optional()).Optional() , ")"));
+
+         tElementNameOrWildcard = Rule(() => tElementName.Or("*"));
+
+         tSchemaElementTest = Rule(() => "schema-element".FollowedBy("(", tElementDeclaration, ")"));
+
+         tElementDeclaration = Rule(() => tElementName);
+
+         tAttributeName = Rule(() => tQName);
+
+         tElementName = Rule(() => tQName);
+
+         tTypeName = Rule(() => tQName);
+
          // todo: more work
          tVarName = new ParseNode() {
-            GetDecisionTerminals = () => { throw new NotSupportedException(""); },
+            Label = "VARNAME",
+            GetDecisionTerminals = () => { return new[] { "VARNAME" }; /* throw new NotSupportedException(""); */ }, // TODO: sort!!!
             Parse = c => { c.Advance(); } // todo: this is incorrec,t but for testing...
          };
+
+         // todo: of coures, this is wrong
+         tQName = tVarName;
+
          // todo
-         tSequenceType = "foo".Terminal();
-         tSingleType = "foo".Terminal();
-         tPathExpr = "foo".Terminal();
+         tNCName = tVarName;
+
+         // todo:
+         tStringLiteral = "string".Terminal();
+         tIntegerLiteral = "int".Terminal();
+         tDecimalLiteral = "dec".Terminal();
+         tDoubleLiteral = "double".Terminal();
+
 
          //ParseNode Expression = null, ExpressionSimple = null, ExprFoo = null, ExprBar = null, ExprBaz = null, ExprZab = null;
 
@@ -196,11 +314,8 @@ namespace XPath2.Parser
          //ExprBaz = Rule(() => "baz".Terminal());
          //ExprZab = Rule(() => "zab".Terminal());
 
-
          // Prime.
-         foreach (SymbolNode tSymbol in tPrimeTargets)
-            tSymbol.Prime();
-       //  ((SymbolNode)Root).Prime();
+         ((SymbolNode)Root).Prime();
       }
 
       public void Parse(String expr)
