@@ -288,7 +288,7 @@ namespace XPath2.Parser
          // todo: more work
          tVarName = new ParseNode() {
             Label = "VARNAME",
-            GetDecisionTerminals = () => { return new[] { "VARNAME" }; /* throw new NotSupportedException(""); */ }, // TODO: sort!!!
+            GetDecisionTerminals = (level) => { return new[] { "VARNAME" }; /* throw new NotSupportedException(""); */ }, // TODO: sort!!!
             Parse = c => { c.Advance(); } // todo: this is incorrec,t but for testing...
          };
 
