@@ -75,7 +75,7 @@ namespace XPath2.Parser
          return false;
       }
 
-      protected override void AdvanceInterleaved()
+      public override void AdvanceInterleaved()
       {
          while (AdvanceWhitespace() || AdvanceComment()) ; // todo: can probably do little more efficient...
       }

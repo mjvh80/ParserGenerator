@@ -9,7 +9,24 @@ namespace SimpleConsoleTests
 {
    class Program
    {
-      static void Main(string[] args)
+      class Foo { public Int32 Bar = 1; }
+
+      static void Main(String[] args)
+      {
+         Foo foo = new Foo();
+         Action a = () => { Console.WriteLine(foo.Bar); };
+         a();
+         List<Foo> list = new List<Foo>();
+         list.Add(foo);
+         Two(list);
+         a();
+         Console.Read();
+      }
+
+      static void Two(ref Foo foo) { foo.Bar = 2; }
+      static void Two(List<Foo> list) { list[0].Bar = 2; }
+
+      static void Main2(string[] args)
       {
          for(;;)
          {

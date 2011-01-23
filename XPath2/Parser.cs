@@ -111,49 +111,79 @@ namespace Parser
       // todo: check count of params, do like followedby?
       public static ParseNode Or(this ParseNode action, params ParseNode[] otherActions)
       {
-         Dictionary<String, ParseNode> tParseTable = new Dictionary<String, ParseNode>();
+         //Dictionary<String, ParseNode> tParseTable = new Dictionary<String, ParseNode>();
+         //foreach (String tTerminal in action.GetDecisionTerminals(0))
+         //   tParseTable.Add(tTerminal, action); // todo: better error handling if key found
+         //foreach (ParseNode tOtherNode in otherActions)
+         //   foreach (String tTerminal in tOtherNode.GetDecisionTerminals(0)) // todo: must do properly
+         //      if (tParseTable.ContainsKey(tTerminal)) // todo: must do this everywhere...
+         //      {
+         //         tParseTable[tTerminal] = new LookaheadParseNode(tTerminal, tParseTable[tTerminal], tOtherNode);
+         //      }
+         //      else
+         //         tParseTable.Add(tTerminal, tOtherNode);
+
+         ParseTable<ParseNode> tParseTable = new ParseTable<ParseNode>();
          foreach (String tTerminal in action.GetDecisionTerminals(0))
-            tParseTable.Add(tTerminal, action); // todo: better error handling if key found
+            tParseTable.AddTerminal(tTerminal, action); // todo: better error handling if key found
          foreach (ParseNode tOtherNode in otherActions)
             foreach (String tTerminal in tOtherNode.GetDecisionTerminals(0)) // todo: must do properly
-               if (tParseTable.ContainsKey(tTerminal)) // todo: must do this everywhere...
+               if (tParseTable.ContainsTerminal(tTerminal)) // todo: must do this everywhere...
                {
                   tParseTable[tTerminal] = new LookaheadParseNode(tTerminal, tParseTable[tTerminal], tOtherNode);
                }
                else
-                  tParseTable.Add(tTerminal, tOtherNode);
+                  tParseTable.AddTerminal(tTerminal, tOtherNode);
+
 
          return new ParseNode()
          {
             GetDecisionTerminals = (level) => {
-               if (level == 0)
-                  return tParseTable.Keys.ToArray();
-               else
-               {
-                  // todo: do more efficient?
-                  String[] tLookaheadTerminals = new String[] { };
-                  tLookaheadTerminals.Merge(action.GetDecisionTerminals(level));
-                  foreach (ParseNode tNode in otherActions)
-                     tLookaheadTerminals.Merge(tNode.GetDecisionTerminals(1));
-                  return tLookaheadTerminals;
-               }
+               //if (level == 0)
+
+               if (level != 0) throw new InvalidOperationException("level no longer supported: todo remove"); // todo
+
+               return tParseTable.Terminals.ToArray(); // todo array?
+               //return tParseTable.Keys.ToArray();
+               //else
+               //{
+               //   // todo: do more efficient?
+               //   String[] tLookaheadTerminals = new String[] { };
+               //   tLookaheadTerminals.Merge(action.GetDecisionTerminals(level));
+               //   foreach (ParseNode tNode in otherActions)
+               //      tLookaheadTerminals.Merge(tNode.GetDecisionTerminals(1));
+               //   return tLookaheadTerminals;
+               //}
             },
             Parse = c => 
             {
-               // Find correct branch, follow it.
-               String tCurrentTerminal = c.Peek();
-               ParseNode tActiveNode;
-               if (tParseTable.TryGetValue(tCurrentTerminal, out tActiveNode))
-                  tActiveNode.Parse(c);
-               else // it may be that we peeked too much, do a binary search:
+               Int32 tPosition = c.Position;
+               c.AdvanceInterleaved(); // todo: must integrate into walker
+               var tWalker = tParseTable.GetWalker();
+               for (Int32 i = c.Position; i < c.Expression.Length && tWalker.Narrows(c.Expression[i]); i++) ;
+               if (tWalker.Value == null)
+                  RaiseExpectedTerminals(c, tParseTable.Terminals);
+               else
                {
-                  // todo: omg, do this better, perhaps not even using a dict
-                  tActiveNode = (from n in tParseTable.Keys where tCurrentTerminal.StartsWith(n) select tParseTable[n]).FirstOrDefault();
-                  if (tActiveNode == null)
-                     RaiseExpectedTerminals(c, tParseTable.Keys);
-                  else
-                     tActiveNode.Parse(c);
+                  c.Position = tPosition;
+                  tWalker.Value.Parse(c);
                }
+               
+
+               //// Find correct branch, follow it.
+               //String tCurrentTerminal = c.Peek();
+               //ParseNode tActiveNode;
+               //if (tParseTable.TryGetValue(tCurrentTerminal, out tActiveNode))
+               //   tActiveNode.Parse(c);
+               //else // it may be that we peeked too much, do a binary search:
+               //{
+               //   // todo: omg, do this better, perhaps not even using a dict
+               //   tActiveNode = (from n in tParseTable.Keys where tCurrentTerminal.StartsWith(n) select tParseTable[n]).FirstOrDefault();
+               //   if (tActiveNode == null)
+               //      RaiseExpectedTerminals(c, tParseTable.Keys);
+               //   else
+               //      tActiveNode.Parse(c);
+               //}
             },
             LookaheadTerminals = (s,l) => tParseTable[s].LookaheadTerminals(s,l), // follow path to where we want lookahead terminals from
             //ParsesTerminal = s => tParseTable.ContainsKey(s) && tParseTable[s].ParsesTerminal(s),
@@ -250,8 +280,8 @@ namespace Parser
       private static ParseNode ParseN(this ParseNode node, Int32 requiredCount, Int32 upperBound)
       {
          // A hashset would do here.
-         Dictionary<String, ParseNode> tParseTable = null; // new Dictionary<string, ParseNode>();
-
+         ParseTable<ParseNode> tParseTable = null;
+        
          return new ParseNode()
          {
             GetDecisionTerminals = node.GetDecisionTerminals,
@@ -263,24 +293,30 @@ namespace Parser
 
                // Parse optional max count.
                Int32 tCountLeft = (upperBound == Int32.MaxValue ? Int32.MaxValue : (upperBound - requiredCount));
+               if (tCountLeft > 0 && tParseTable == null)
+               {
+                  tParseTable = new ParseTable<ParseNode>();
+                  foreach (String tTerminal in node.GetDecisionTerminals(0))
+                     tParseTable.AddTerminal(tTerminal, node);
+               }
                for (Int32 i = 0; i < tCountLeft && tCountLeft > 0; i++)
                {
-                  // Lazily initialize parse table, should only call decision nodes if needed!
-                  if (tParseTable == null) // todo: move out of loop
-                  {
-                     // todo: if we don't have a required count, must do this outputside of node, ie where
-                     // parsetable is declared, as that's where we should decide decision terimnal.
-                     // todo: i believe this branch isnt used, test with grammar! in fact doing table here is wrong, should be outside, but only if needed
-                     tParseTable = new Dictionary<string, ParseNode>();
-                     foreach (String tTerminal in node.GetDecisionTerminals(0))
-                        tParseTable.Add(tTerminal, node);
-                  }
+                  Int32 tPosition = c.Position;
+                  c.AdvanceInterleaved();
+                  var tWalker = tParseTable.GetWalker();
+                  for (Int32 k = c.Position; k < c.Expression.Length && tWalker.Narrows(c.Expression[k]); k++) ;
+                  c.Position = tPosition;
 
-                  String tCurrentTerminal = c.Peek();
-                  if (tParseTable.ContainsKey(tCurrentTerminal))
-                     node.Parse(c);
-                  else
+                  if (tWalker.Value == null)
                      break; // we're done
+                  else
+                     tWalker.Value.Parse(c);
+
+                  //String tCurrentTerminal = c.Peek();
+                  //if (tParseTable.ContainsKey(tCurrentTerminal))
+                  //   node.Parse(c);
+                  //else
+                  //   break; // we're done
                }
             },
             LookaheadTerminals = (s, termList) =>
@@ -377,7 +413,7 @@ namespace Parser
          return tResult;
       }
 
-      protected virtual void AdvanceInterleaved() { }
+      public virtual void AdvanceInterleaved() { }
 
       /// <summary>
       /// Used to parse "simple" tokens, language constructs.
@@ -442,32 +478,43 @@ namespace Parser
                throw new InvalidOperationException(); // todo: return terminalStr? I think it makes no sense to ask for dec. terminals here.
             };
 
-         Dictionary<String, ParseNode> tParseTable = new Dictionary<string,ParseNode>();
+        //Dictionary<String, ParseNode> tParseTable = new Dictionary<string,ParseNode>();
+         ParseTable<ParseNode> tParseTable = new ParseTable<ParseNode>();
          List<String> tLookaheadTerminals = new List<String>();
          left.LookaheadTerminals(terminalStr, tLookaheadTerminals);
          foreach (String tTerminal in tLookaheadTerminals)
-            tParseTable[tTerminal] = left;
+            tParseTable.AddTerminal(tTerminal, left);
+            //tParseTable[tTerminal] = left;
          tLookaheadTerminals.Clear();
          right.LookaheadTerminals(terminalStr, tLookaheadTerminals);
          foreach (String tTerminal in tLookaheadTerminals)
-            tParseTable[tTerminal] = right; // todo: must catch key already found exception better
-         //if (tParseTable == null)
-         //{
-         //   tParseTable = new Dictionary<string, ParseNode>();
-         //   foreach (String tTerminal in left.GetDecisionTerminals(1))
-         //      tParseTable.Add(tTerminal, left);
-         //   foreach (String tTerminal in right.GetDecisionTerminals(1))
-         //      tParseTable.Add(tTerminal, right);
-         //}
+            tParseTable.AddTerminal(tTerminal, right); // todo as below
+            //tParseTable[tTerminal] = right; // todo: must catch key already found exception better
+        
 
          Parse = c =>
             {
-               // Back up current position.
-               Int32 tPos = c.Position;
-               c.Advance(terminalStr); // expect this terminal
-               ParseNode tChosenNode = tParseTable[c.Peek()]; // todo: same problem as always... 
-               c.Position = tPos;
-               tChosenNode.Parse(c);
+               Int32 tPosition = c.Position;
+               c.Advance(terminalStr);
+               c.AdvanceInterleaved(); // todo... dont want this like this -> integrate walker into context
+               var tWalker = tParseTable.GetWalker();
+               for (Int32 i = c.Position; i < c.Expression.Length && tWalker.Narrows(c.Expression[i]); i++) ;
+               if (tWalker.Value == null)
+                  throw new Exception("expected oned of " + tParseTable.Terminals.ToArray().ToString());
+               //RaiseExpectedTerminals(c, tParseTable.Terminals);
+               else
+               {
+                  c.Position = tPosition; // reset
+                  tWalker.Value.Parse(c); // parse
+               }
+
+
+               //// Back up current position.
+               //Int32 tPos = c.Position;
+               //c.Advance(terminalStr); // expect this terminal
+               //ParseNode tChosenNode = tParseTable[c.Peek()]; // todo: same problem as always... 
+               //c.Position = tPos;
+               //tChosenNode.Parse(c);
             };
       }
    }
@@ -553,11 +600,67 @@ namespace Parser
    }
 
    // todo: this is a proof of concept, must use an efficient algorithm instead.
-   public class ParseTable<T>
+
+   /* Datastructure representing the parsetable. It should do:
+   * Given the input stream, start a search for characters as they are presented.
+   * Once no more match is found, backtrack to longest result.
+   * */
+
+   // todo: idea
+   // refactor and move walker logic into context (pass a table to it?)
+   // - currently a decision is made continuously, causing a a lot of unnecessary retrying..
+   // - im not user if we could get that much faster, we still have to make the choice at each point, may be able to cache a prefix
+   public class ParseTable<T> where T : class
    {
       protected Dictionary<String, T> Table = new Dictionary<string, T>();
 
-      public void Add(String key, T value) { Table.Add(key, value); }
+      public void AddTerminal(String terminalStr, T node) 
+      {
+         if (String.IsNullOrEmpty(terminalStr))
+            throw new ArgumentException("key empty or null");
+
+         if (node == null)
+            throw new ArgumentException("value is null");
+
+         Table.Add(terminalStr, node);
+      }
+
+      public Boolean ContainsTerminal(String terminalStr)
+      {
+         return Table.ContainsKey(terminalStr);
+      }
+
+      public T this[String terminalStr]
+      {
+         get { return Table[terminalStr]; }
+         set 
+         {
+            if (value == null)
+               throw new ArgumentNullException();
+
+            Table[terminalStr] = value; 
+         }
+      }
+
+      public Boolean TryGetNode(String terminalStr, out T node)
+      {
+         return Table.TryGetValue(terminalStr, out node);
+      }
+
+      public IEnumerable<String> Terminals { get { return Table.Keys; } }
+
+      //// hideously inefficient
+      //public Boolean ContainsKeyPrefix(String key)
+      //{
+      //   if (String.IsNullOrEmpty(key))
+      //      return false;
+
+      //   Walker tWalker = new Walker(Table);
+      //   Int32 tCount = 0;
+      //   for (Int32 i = 0; i < key.Length && tWalker.Narrows(key[i], out tCount); i++) ;
+
+      //   return tCount == 1;
+      //}
 
       public Walker GetWalker()
       {
@@ -568,36 +671,71 @@ namespace Parser
       {
          public Walker(Dictionary<String, T> pTable) { mTable = pTable; }
 
+         protected String mLastFullKey;
+         protected String mKey;
          protected String mBuffer = "";
          protected Dictionary<String, T> mTable;
+
+         public Int32 Count = 0;
+
+         public Boolean Narrows(Char pChar)
+         {
+            Int32 tCount;
+            return Narrows(pChar, out tCount);
+         }
 
          // Returns true if the char narrows the search, but is not yet unambiguous.
          // Returns false if no results or a single result remain.
          // True indicates the search narrows but is not yet finished.
-         public Boolean Narrows(Char pChar)
+         // todo: inefficient
+         public Boolean Narrows(Char pChar, out Int32 tCount)
          {
             mBuffer += pChar;
 
-            Int32 tCount = 0;
+            tCount = 0;
+
             foreach (String tKey in mTable.Keys)
                if (tKey.StartsWith(mBuffer))
-                  tCount += 1;
+               {
+                  if (tKey.Length == mBuffer.Length)
+                     mLastFullKey = tKey;
 
-            return tCount <= 1;
+                  mKey = tKey;
+                  tCount += 1;
+               }
+
+            if (tCount > 1)
+            {
+               mKey = null;
+               return true; // it narrowed, there's more
+            }
+               return false; // can stop, key is found (or not, but that's a parse error)
          }
 
+         // assumes things have narrowed...
          public T Value
          {
             get
             {
-               foreach (String tKey in mTable.Keys)
-                  if (tKey.StartsWith(mBuffer))
-                     return mTable[tKey];
-               throw new Exception("value not found");
+               if (mKey == null)
+               {
+                  if (mLastFullKey == null)
+                     return null;
+
+                  return mTable[mLastFullKey];
+               }
+               else
+                  return mTable[mKey];
+               //foreach (String tKey in mTable.Keys)
+               //   if (tKey.StartsWith(mBuffer))
+               //      return mTable[tKey];
+               //throw new Exception("value not found");
             }
          }
       }
    }
+
+  
 
    
 
