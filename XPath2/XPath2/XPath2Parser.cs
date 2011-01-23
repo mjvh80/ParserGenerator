@@ -91,46 +91,28 @@ namespace XPath2.Parser
          List<SymbolNode> tPrimeTargets = new List<SymbolNode>();
 
          //Func<Func<ParseNode>, ParseNode> Rule = f =>
-         //   new ParseNode()
          //   {
-         //      GetDecisionTerminals = () => f().GetDecisionTerminals(),
-         //      Parse = c => f().Parse(c)
+         //      SymbolNode tNode = new SymbolNode()
+         //      {
+         //         Primer = f
+         //      };
+         //      tPrimeTargets.Add(tNode);
+         //      return tNode;
          //   };
 
          Func<Func<ParseNode>, ParseNode> Rule = f =>
-            {
-               SymbolNode tNode = new SymbolNode()
-               {
-                  Primer = f
-               };
-               tPrimeTargets.Add(tNode);
-               return tNode;
-            };
+         {
+            SymbolNode tNode = new SymbolNode(f);
+            tPrimeTargets.Add(tNode);
+            return tNode;
+         };
 
          // Define grammar symbols:
-         ParseNode tExpr = null,
-            tExprSingle = null,
-            tForExpr = null,
-            tQuantifiedExpr = null,
-            tIfExpr = null,
-            tOrExpr = null,
-            tSimpleForClause = null,
-            tVarName = null,
-            tAndExpr = null,
-            tComparisonExpr = null,
-            tRangeExpr = null, tValueComp = null, tGeneralComp = null, tNodeComp = null,
-            tAdditiveExpr = null,
-            tMultiplicativeExpr = null,
-            tUnionExpr = null,
-            tIntersectExceptExpr = null,
-            tInstanceofExpr = null,
-            tTreatExpr = null,
-            tCastableExpr = null,
-            tCastExpr = null,
-            tUnaryExpr = null,
-            tValueExpr = null,
-            tSequenceType = null,
-            tSingleType = null,
+         ParseNode tExpr = null, tExprSingle = null, tForExpr = null, tQuantifiedExpr = null,
+            tIfExpr = null, tOrExpr = null, tSimpleForClause = null, tVarName = null, tAndExpr = null, tComparisonExpr = null,
+            tRangeExpr = null, tValueComp = null, tGeneralComp = null, tNodeComp = null, tAdditiveExpr = null, tMultiplicativeExpr = null,
+            tUnionExpr = null, tIntersectExceptExpr = null, tInstanceofExpr = null, tTreatExpr = null, tCastableExpr = null,
+            tCastExpr = null, tUnaryExpr = null, tValueExpr = null, tSequenceType = null, tSingleType = null,
             tPathExpr = null, tForwardAxis = null, tReverseAxis = null, tAbbrevForwardStep = null, tNodeTest = null,
             tKindTest = null, tNameTest = null, tRelativePathExpr = null, tStepExpr = null, tFilterExpr = null, tAxisStep = null,
             tReverseStep = null, tPredicateList = null, tForwardStep = null, tAbbrevReverseStep = null,
@@ -142,6 +124,8 @@ namespace XPath2.Parser
             tAttributeTest = null, tAttribNameOrWildcard = null, tAttributeName = null,
             tElementTest = null, tElementNameOrWildcard = null, tElementName = null, tTypeName = null,
             tSchemaElementTest = null, tElementDeclaration = null, tSchemaAttributeTest = null, tAttributeDeclaration = null;
+
+         // Define grammar:
 
          Root = Rule(() => tExpr.EOF());
 
@@ -288,15 +272,23 @@ namespace XPath2.Parser
          // todo: more work
          tVarName = new ParseNode() {
             Label = "VARNAME",
-            GetDecisionTerminals = (level) => { return new[] { "VARNAME" }; /* throw new NotSupportedException(""); */ }, // TODO: sort!!!
+            GetDecisionTerminals = (level) => { throw new InvalidOperationException("lookahead terminals are not needed for varname in this grammar"); },
             Parse = c => { c.Advance(); } // todo: this is incorrec,t but for testing...
          };
 
+         ParseNode tTmp = new ParseNode()
+         {
+            Label = "VARNAME",
+            GetDecisionTerminals = (level) => { return new String[] { "VARNAME" }; },
+            Parse = c => { c.Advance(); } // todo: this is incorrec,t but for testing...
+         };
+
+
          // todo: of coures, this is wrong
-         tQName = tVarName;
+         tQName = tTmp;
 
          // todo
-         tNCName = tVarName;
+         tNCName = tTmp;
 
          // todo:
          tStringLiteral = "string".Terminal();
@@ -314,8 +306,16 @@ namespace XPath2.Parser
          //ExprBaz = Rule(() => "baz".Terminal());
          //ExprZab = Rule(() => "zab".Terminal());
 
+
          // Prime.
-         ((SymbolNode)Root).Prime();
+        // ((SymbolNode)Root).Prime();
+         Stack<ParseNode> tPrimeStack = new Stack<ParseNode>();
+         tPrimeStack.Push(Root);
+         while (tPrimeStack.Count > 0)
+         {
+            
+            tPrimeStack.Pop().Prime(tPrimeStack);
+         }
       }
 
       public void Parse(String expr)

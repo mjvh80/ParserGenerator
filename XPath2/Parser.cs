@@ -111,33 +111,38 @@ namespace Parser
       // todo: check count of params, do like followedby?
       public static ParseNode Or(this ParseNode action, params ParseNode[] otherActions)
       {
-         //Dictionary<String, ParseNode> tParseTable = new Dictionary<String, ParseNode>();
-         //foreach (String tTerminal in action.GetDecisionTerminals(0))
-         //   tParseTable.Add(tTerminal, action); // todo: better error handling if key found
-         //foreach (ParseNode tOtherNode in otherActions)
-         //   foreach (String tTerminal in tOtherNode.GetDecisionTerminals(0)) // todo: must do properly
-         //      if (tParseTable.ContainsKey(tTerminal)) // todo: must do this everywhere...
-         //      {
-         //         tParseTable[tTerminal] = new LookaheadParseNode(tTerminal, tParseTable[tTerminal], tOtherNode);
-         //      }
-         //      else
-         //         tParseTable.Add(tTerminal, tOtherNode);
-
          ParseTable<ParseNode> tParseTable = new ParseTable<ParseNode>();
-         foreach (String tTerminal in action.GetDecisionTerminals(0))
-            tParseTable.AddTerminal(tTerminal, action); // todo: better error handling if key found
-         foreach (ParseNode tOtherNode in otherActions)
-            foreach (String tTerminal in tOtherNode.GetDecisionTerminals(0)) // todo: must do properly
-               if (tParseTable.ContainsTerminal(tTerminal)) // todo: must do this everywhere...
-               {
-                  tParseTable[tTerminal] = new LookaheadParseNode(tTerminal, tParseTable[tTerminal], tOtherNode);
-               }
-               else
-                  tParseTable.AddTerminal(tTerminal, tOtherNode);
-
-
+         
          return new ParseNode()
          {
+            Primer = (s) =>
+               {
+                  Boolean tAllPrimed = true;
+
+                  tAllPrimed = action.Prime(s) && tAllPrimed;
+                  if (tAllPrimed)
+                  foreach (ParseNode tNode in otherActions)
+                     tAllPrimed = tNode.Prime(s) && tAllPrimed;
+
+                  if (!tAllPrimed)
+                     return false;
+
+                  // With all nodes primed, build parse table.
+
+                  foreach (String tTerminal in action.DoGetDecisionTerminals(0))
+                     tParseTable.AddTerminal(tTerminal, action); // todo: better error handling if key found
+                  foreach (ParseNode tOtherNode in otherActions)
+                     foreach (String tTerminal in tOtherNode.DoGetDecisionTerminals(0)) // todo: must do properly
+                        if (tParseTable.ContainsTerminal(tTerminal)) // todo: must do this everywhere...
+                        {
+                           tParseTable[tTerminal] = new LookaheadParseNode(tTerminal, tParseTable[tTerminal], tOtherNode);
+                        }
+                        else
+                           tParseTable.AddTerminal(tTerminal, tOtherNode);
+
+                  return true; // we are primed
+               },
+
             GetDecisionTerminals = (level) => {
                //if (level == 0)
 
@@ -208,16 +213,22 @@ namespace Parser
             //GetDecisionTerminals = node.Optional ? (level) => node.GetDecisionTerminals(level).Merge(otherNode.GetDecisionTerminals(level))
             //                                     : node.GetDecisionTerminals,
 
-            GetDecisionTerminals = level =>
+            Primer = (s) => {
+
+               //return node.Prime(s) &&
+               //otherNode.Prime(s);
+
+               if (node.Optional)
+                  return node.Prime(s) && otherNode.Prime(s);
+               else
                {
-                  if (level == 0)
-                     return node.Optional ? node.GetDecisionTerminals(0).Merge(otherNode.GetDecisionTerminals(0)) : node.GetDecisionTerminals(0);
-                  else
-                  {
-                     // lookahead terminals here are:
-                     return node.Optional ? node.GetDecisionTerminals(level).Merge(otherNode.GetDecisionTerminals(level).Merge(otherNode.GetDecisionTerminals(level - 1))) : node.GetDecisionTerminals(level);
-                  }
-               },
+                  Boolean tResult = node.Prime(s);
+                  otherNode.Prime(s);
+                  return tResult;
+               }
+            },
+
+            GetDecisionTerminals = level => node.Optional ? node.DoGetDecisionTerminals(0).Merge(otherNode.DoGetDecisionTerminals(0)) : node.DoGetDecisionTerminals(0),
 
             Parse = c =>
             {
@@ -229,7 +240,7 @@ namespace Parser
             {
                if (node.ParsesTerminal(s))
                {
-                  termList.AddRange(otherNode.GetDecisionTerminals(0));
+                  termList.AddRange(otherNode.DoGetDecisionTerminals(0));
                   return !otherNode.Optional; // if optional, we may not be done
                }
                else if (node.LookaheadTerminals(s, termList) && !node.Optional)
@@ -284,6 +295,22 @@ namespace Parser
         
          return new ParseNode()
          {
+            Primer = (s) =>
+               {
+                  if (node.Prime(s))
+                  {
+                     if (upperBound - requiredCount > 0)
+                     {
+                        tParseTable = new ParseTable<ParseNode>();
+                        foreach (String tTerminal in node.DoGetDecisionTerminals(0))
+                           tParseTable.AddTerminal(tTerminal, node);
+                     }
+                     return true;
+                  }
+                  else
+                     return false;
+               },
+
             GetDecisionTerminals = node.GetDecisionTerminals,
             Parse = c =>
             {
@@ -293,12 +320,6 @@ namespace Parser
 
                // Parse optional max count.
                Int32 tCountLeft = (upperBound == Int32.MaxValue ? Int32.MaxValue : (upperBound - requiredCount));
-               if (tCountLeft > 0 && tParseTable == null)
-               {
-                  tParseTable = new ParseTable<ParseNode>();
-                  foreach (String tTerminal in node.GetDecisionTerminals(0))
-                     tParseTable.AddTerminal(tTerminal, node);
-               }
                for (Int32 i = 0; i < tCountLeft && tCountLeft > 0; i++)
                {
                   Int32 tPosition = c.Position;
@@ -453,6 +474,8 @@ namespace Parser
    //   }
    //}
 
+   //public delegate void PrimeDelegate(Stack<PrimeDelegate> primeStack);
+
    public class ParseNode
    {
       public String Label; // used for debugging only todo: can use a class type for each type of node (?)
@@ -464,6 +487,52 @@ namespace Parser
       //public String FindLookaheadTerminal(String terminal) = s => null;
       public Func<String, List<String>, Boolean> LookaheadTerminals = (s, l) => true; // return true if route is exhausted, false otherwise
       public Func<String, Boolean> ParsesTerminal = s => false; // todo: can't we do better?
+
+      public Func<Stack<ParseNode>, Boolean> Primer;
+
+      protected enum PrimeMode { None, Priming, Primed };
+      protected PrimeMode Mode = PrimeMode.None;
+      public virtual Boolean Prime(Stack<ParseNode> primeStack) 
+      {
+         switch (Mode)
+         {
+            case PrimeMode.None:
+               if (Primer != null)
+               {
+                  Mode = PrimeMode.Priming;
+                  if (Primer(primeStack))
+                     Mode = PrimeMode.Primed;
+                  else
+                  {
+                     Mode = PrimeMode.None;
+                     primeStack.Push(this); // couldn't prime this node, queue for retry
+                  }
+               }
+               else // no primer = default primer
+                  Mode = PrimeMode.Primed;
+               break;
+         }
+
+         return Mode == PrimeMode.Primed;
+      }
+
+      public String[] DoGetDecisionTerminals(Int32 pLevel) // todo: rename this and lambda
+      {
+         switch (Mode)
+         {
+            case PrimeMode.None:
+               throw new InvalidOperationException("node not primed");
+
+            case PrimeMode.Priming:
+               throw new ParseException("circular grammar");
+
+            default:
+               return GetDecisionTerminals(pLevel);
+         }
+      }
+
+      public Boolean IsPriming() { return Mode == PrimeMode.Priming; }
+      public Boolean IsPrimed() { return Mode == PrimeMode.Primed; }
    }
 
    // only intended for insertion
@@ -519,13 +588,49 @@ namespace Parser
       }
    }
 
+   public class SymbolNode : ParseNode
+   {
+      protected ParseNode mNode;
+
+      public SymbolNode(Func<ParseNode> lazy)
+      {
+         Label = "SYMBOL"; // todo?
+
+         Primer = (s) =>
+         {
+            mNode = lazy();
+            Boolean tResult = mNode.Prime(s);
+
+            Label = mNode.Label;
+            // todo: a symbol node is never optional?
+            Optional = mNode.Optional; // todo: make lambda?
+
+            return tResult;
+
+            //this.Primer = mNode.Primer;
+            //this.GetDecisionTerminals = mNode.GetDecisionTerminals;
+            //this.Parse = mNode.Parse;
+            //this.Label = mNode.Label;
+            //this.LookaheadTerminals = mNode.LookaheadTerminals;
+            //this.Optional = mNode.Optional;
+         };
+
+         GetDecisionTerminals = l => mNode.GetDecisionTerminals(l);
+
+         Parse = c => mNode.Parse(c);
+
+         LookaheadTerminals = (s, l) => mNode.LookaheadTerminals(s, l);
+      }
+   }
+
+
    // Idea:
    // A symbolnode is defined by the Rule method.
    // A -> B
    // B -> A 'a'
    // D -> A | B
    // The above would be detected.
-   public class SymbolNode : ParseNode
+   public class SymbolNode_OLD : ParseNode
    {
       protected enum PrimingState { None, Priming, Primed };
 
@@ -535,7 +640,7 @@ namespace Parser
       protected Func<Int32, String[]> mInternalDecisionSymbols;
       protected Action<ParseContext> mInternalParse;
 
-      public SymbolNode()
+      public SymbolNode_OLD()
       {
          Label = "__SYMBOL";
 

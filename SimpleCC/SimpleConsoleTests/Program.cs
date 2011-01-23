@@ -11,7 +11,7 @@ namespace SimpleConsoleTests
    {
       class Foo { public Int32 Bar = 1; }
 
-      static void Main(String[] args)
+      static void Main2(String[] args)
       {
          Foo foo = new Foo();
          Action a = () => { Console.WriteLine(foo.Bar); };
@@ -26,7 +26,7 @@ namespace SimpleConsoleTests
       static void Two(ref Foo foo) { foo.Bar = 2; }
       static void Two(List<Foo> list) { list[0].Bar = 2; }
 
-      static void Main2(string[] args)
+      static void Main(string[] args)
       {
          for(;;)
          {
