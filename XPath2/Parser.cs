@@ -623,86 +623,115 @@ namespace Parser
       }
    }
 
-
-   // Idea:
-   // A symbolnode is defined by the Rule method.
-   // A -> B
-   // B -> A 'a'
-   // D -> A | B
-   // The above would be detected.
-   public class SymbolNode_OLD : ParseNode
+   public abstract class Terminal
    {
-      protected enum PrimingState { None, Priming, Primed };
+      public abstract Boolean Matches(Char pChar, Int32 pPosition);
 
-      public Func<ParseNode> Primer;
-      protected PrimingState State = PrimingState.None;
+   }
 
-      protected Func<Int32, String[]> mInternalDecisionSymbols;
-      protected Action<ParseContext> mInternalParse;
+   public class StringTerminal : Terminal
+   {
+      protected String mTerminalStr;
 
-      public SymbolNode_OLD()
+      public StringTerminal(String terminalStr)
       {
-         Label = "__SYMBOL";
-
-         mInternalDecisionSymbols = (level) =>
-         {
-            if (State == PrimingState.Priming)
-               throw new Exception("circular grammar");
-            else if (State == PrimingState.None)
-            {
-               return this.Prime().GetDecisionTerminals(level);
-            }
-
-            throw new InvalidOperationException();
-         };
-
-         mInternalParse = c => 
-         {
-            switch (State)
-            {
-               case PrimingState.None:
-                  this.Prime().Parse(c);
-                  break;
-
-               // No parsing should be possible during priming.
-               case PrimingState.Priming:
-                  throw new InvalidOperationException();
-
-               case PrimingState.Primed:
-                  this.Parse(c);
-                  break;
-            }
-          //  throw new Exception("no parse method defined"); 
-         };
-
-         GetDecisionTerminals = (level) => mInternalDecisionSymbols(level);
-         Parse = c => mInternalParse(c);
+         if (String.IsNullOrEmpty(terminalStr))
+            throw new ArgumentException("terminal string is null or empty");
+         mTerminalStr = terminalStr;
       }
 
-      public virtual ParseNode Prime()
+      public override bool Matches(char pChar, int pPosition)
       {
-         if (this.State == PrimingState.Primed)
-            return this;
+         return pPosition < mTerminalStr.Length && mTerminalStr[pPosition] == pChar;
+      }
 
-         if (this.State == PrimingState.Priming)
-            throw new Exception("attempt to prime priming node");// todo
+      public override int GetHashCode()
+      {
+         return mTerminalStr.GetHashCode();
+      }
 
-         this.State = PrimingState.Priming;
-
-         ParseNode tPrimeNode = Primer();
-         this.mInternalDecisionSymbols = tPrimeNode.GetDecisionTerminals; // If a symbolnode, it will replace it's internals, but external ref. is constant todo: why did the capture not work?
-         this.mInternalParse = tPrimeNode.Parse;
-         this.LookaheadTerminals = tPrimeNode.LookaheadTerminals; // todo: need internals?
-         //this.GetDecisionTerminals = level => 
-         //   tPrimeNode.GetDecisionTerminals(level);
-         //this.Parse = c => 
-         //   tPrimeNode.Parse(c);
-         this.Label = tPrimeNode.Label;
-
-         this.State = PrimingState.Primed;
-         return this;
+      public override bool Equals(object obj)
+      {
+         StringTerminal tOther = obj as StringTerminal;
+         return tOther != null && tOther.mTerminalStr == mTerminalStr; // todo: equals?
       }
    }
+
+   public class RangeTerminal : Terminal
+   {
+      protected Char mLow, mHigh;
+
+      public RangeTerminal(Char lower, Char higher)
+      {
+         mLow = lower;
+         mHigh = higher;
+      }
+
+      public override bool Matches(char pChar, int pPosition)
+      {
+         if (pPosition != 0)
+            return false;
+
+         return pChar >= mLow && pChar <= mHigh;
+      }
+
+      public override int GetHashCode()
+      {
+         return mLow.GetHashCode() ^ mHigh.GetHashCode();
+      }
+
+      public override bool Equals(object obj)
+      {
+         RangeTerminal tOther = obj as RangeTerminal;
+         return tOther != null && tOther.mLow == mLow && tOther.mHigh == mHigh;
+      }
+   }
+
+   public class NegationTerminal : Terminal
+   {
+      protected Char[] mChars;
+
+      public NegationTerminal(params Char[] chars)
+      {
+         if (chars.Length == 0)
+            throw new ArgumentException("no chars in negation terminal");
+         mChars = chars;
+      }
+
+      public override bool Matches(char pChar, int pPosition)
+      {
+         if (pPosition != 0)
+            return false;
+
+         for (Int32 i = 0; i < mChars.Length; i++)
+            if (mChars[i] == pChar)
+               return false;
+
+         return true;
+      }
+   }
+
+   public class ChoiceTerminal : Terminal
+   {
+      protected Char[] mChars;
+
+      public ChoiceTerminal(params Char[] chars)
+      {
+         if (chars.Length == 0)
+            throw new ArgumentException("no chars in choice terminal");
+         mChars = chars;
+      }
+
+      public override bool Matches(char pChar, int pPosition)
+      {
+         for (Int32 i = 0; i < mChars.Length; i++)
+            if (pChar == mChars[i])
+               return true;
+
+         return false;
+      }
+   }
+
 
    // todo: this is a proof of concept, must use an efficient algorithm instead.
 
