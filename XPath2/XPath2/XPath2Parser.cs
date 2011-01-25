@@ -207,7 +207,7 @@ namespace XPath2.Parser
 
          tPredicateList = Rule(() => tPredicate.ZeroOrMore());
 
-         tPredicate = Rule(() => "[".FollowedBy(tExpr).FollowedBy("]"));
+         tPredicate = Rule(() => "'['".FollowedBy(tExpr).FollowedBy("']'"));
 
          tPrimaryExpr = Rule(() => tLiteral.Or(tVarRef, tParenthesizedExpr, tContextItemExpr, tFunctionCall));
 
@@ -279,7 +279,7 @@ namespace XPath2.Parser
          ParseNode tTmp = new ParseNode()
          {
             Label = "VARNAME",
-            GetDecisionTerminals = (level) => { return new String[] { "VARNAME" }; },
+            GetDecisionTerminals = (level) => { return new Terminal[] { new StringTerminal("VARNAME") }; },
             Parse = c => { c.Advance(); } // todo: this is incorrec,t but for testing...
          };
 
@@ -291,10 +291,10 @@ namespace XPath2.Parser
          tNCName = tTmp;
 
          // todo:
-         tStringLiteral = "string".Terminal();
-         tIntegerLiteral = "int".Terminal();
-         tDecimalLiteral = "dec".Terminal();
-         tDoubleLiteral = "double".Terminal();
+         tStringLiteral = "[a-z]".Terminal();
+         tIntegerLiteral = "_int".Terminal();
+         tDecimalLiteral = "_dec".Terminal();
+         tDoubleLiteral = "_double".Terminal();
 
 
          //ParseNode Expression = null, ExpressionSimple = null, ExprFoo = null, ExprBar = null, ExprBaz = null, ExprZab = null;

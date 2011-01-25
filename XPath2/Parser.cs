@@ -3,6 +3,15 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 
+// 2 ideas:
+// 1. we can cache the current lookahead, advance takes a terminal as follows:
+//  - narrow down to a terminal that makes the choice
+//  - any subsequent narrowing simply returns this terminal
+//  - the terminal is not cleared until Advance(terminal) is called.
+//  - how to deal with 1 lookahead? cache 2?
+//
+// 2. EOF should become a special terminal, EofTerminal.
+
 namespace Parser
 {
    public class ParseException : Exception
@@ -19,6 +28,7 @@ namespace Parser
          this.GetDecisionTerminals = l => { throw new ParseException("EOF decision terminals needed"); };
          this.Parse = c =>
          {
+            c.AdvanceInterleaved();
             if (c.Position != c.Expression.Length)
                throw new ParseException("expected end of input at {0}", c.Position.ToString());
          };
@@ -27,10 +37,10 @@ namespace Parser
 
    public static class ParserExtensions
    {
-      private static void RaiseExpectedTerminals(ParseContext ctx, IEnumerable<String> terminals)
+      private static void RaiseExpectedTerminals(ParseContext ctx, IEnumerable<Terminal> terminals)
       {
          // todo: add positional info
-         throw new ParseException("expected one of '{0}', found '{1}'", String.Join(", ", terminals), "foobar"); // todo
+         throw new ParseException("expected one of '{0}', found '{1}'", String.Join(", ", terminals), String.Join<Terminal>(" or ", terminals)); // todo
       }
 
       //// TODO: check ok
@@ -61,18 +71,46 @@ namespace Parser
       //   return null;
       //}
 
-      public static ParseNode Terminal(this String terminalStr)
+      public static ParseNode Terminal(this String terminalExpression)
       {
+         Terminal tTerminal;
+
+         // Parse terminal expression. todo: improve parsing
+         if (terminalExpression.StartsWith("["))
+         {
+            if (terminalExpression.Contains("-"))
+               tTerminal = new RangeTerminal(terminalExpression[1], terminalExpression[3]);
+            else
+            {
+               Boolean tNegated = terminalExpression[1] == '^';
+               if (tNegated) // [^abc]
+                  tTerminal = new ChoiceTerminal(true, terminalExpression.Substring(2, terminalExpression.Length - 3).ToCharArray());
+               else
+                  tTerminal = new ChoiceTerminal(false, terminalExpression.Substring(1, terminalExpression.Length - 2).ToCharArray());
+            }
+         }
+         else if (terminalExpression.StartsWith("'"))
+            tTerminal = new StringTerminal(terminalExpression.Substring(1, terminalExpression.Length - 2)); // todo check last char etc.
+         else
+            tTerminal = new StringTerminal(terminalExpression);
+
          return new ParseNode()
          {
-            Label = "TERMINAL(" + terminalStr + ")",
+            Label = "TERMINAL(" + tTerminal.ToString() + ")",
             GetDecisionTerminals = (level) => {
-               if (level == 0)
-                  return new[] { terminalStr };
-               return new String[] { };
+                  return new[] { tTerminal };
             },
-            Parse = c => { c.Advance(terminalStr); },
-            ParsesTerminal = s => s == terminalStr
+            Parse = c =>
+            {
+               c.Advance(tTerminal); 
+
+               //// todo: should put terminal advancing in context
+               //if (tTerminal is StringTerminal)
+               //   c.Advance(((StringTerminal)tTerminal).TerminalString);
+               //else
+               //   c.Position += 1; // skip char -> todo: move to context, make method etc.
+            },
+            ParsesTerminal = s => s.Equals(tTerminal)
          };
       }
 
@@ -129,11 +167,11 @@ namespace Parser
 
                   // With all nodes primed, build parse table.
 
-                  foreach (String tTerminal in action.DoGetDecisionTerminals(0))
+                  foreach (Terminal tTerminal in action.DoGetDecisionTerminals(0))
                      tParseTable.AddTerminal(tTerminal, action); // todo: better error handling if key found
                   foreach (ParseNode tOtherNode in otherActions)
-                     foreach (String tTerminal in tOtherNode.DoGetDecisionTerminals(0)) // todo: must do properly
-                        if (tParseTable.ContainsTerminal(tTerminal)) // todo: must do this everywhere...
+                     foreach (Terminal tTerminal in tOtherNode.DoGetDecisionTerminals(0)) // todo: must do properly
+                        if (tParseTable.HasConflictingTerminal(tTerminal)) // todo: must do this everywhere...
                         {
                            tParseTable[tTerminal] = new LookaheadParseNode(tTerminal, tParseTable[tTerminal], tOtherNode);
                         }
@@ -223,7 +261,7 @@ namespace Parser
                else
                {
                   Boolean tResult = node.Prime(s);
-                  otherNode.Prime(s);
+                  otherNode.Prime(s); // may queue itself, but result is irrelevant..
                   return tResult;
                }
             },
@@ -302,7 +340,7 @@ namespace Parser
                      if (upperBound - requiredCount > 0)
                      {
                         tParseTable = new ParseTable<ParseNode>();
-                        foreach (String tTerminal in node.DoGetDecisionTerminals(0))
+                        foreach (Terminal tTerminal in node.DoGetDecisionTerminals(0))
                            tParseTable.AddTerminal(tTerminal, node);
                      }
                      return true;
@@ -322,8 +360,8 @@ namespace Parser
                Int32 tCountLeft = (upperBound == Int32.MaxValue ? Int32.MaxValue : (upperBound - requiredCount));
                for (Int32 i = 0; i < tCountLeft && tCountLeft > 0; i++)
                {
-                  Int32 tPosition = c.Position;
                   c.AdvanceInterleaved();
+                  Int32 tPosition = c.Position;
                   var tWalker = tParseTable.GetWalker();
                   for (Int32 k = c.Position; k < c.Expression.Length && tWalker.Narrows(c.Expression[k]); k++) ;
                   c.Position = tPosition;
@@ -381,7 +419,7 @@ namespace Parser
       }
 
       public String Expression;
-      public String CurrentToken;
+      public String CurrentToken; // todo: remove
 
       public Int32 Position { get; set; } // todo: check usages, external
 
@@ -405,7 +443,7 @@ namespace Parser
       /// </summary>
       /// <param name="str"></param>
       /// <returns></returns>
-      public String Advance(String str) 
+      protected void Advance(String str) 
       {
          if (str == null)
             throw new ArgumentNullException("Advance: str is null");
@@ -418,7 +456,24 @@ namespace Parser
          if (i != str.Length)
             throw new ParseException("expected '{0}' around position {1}", str, Position.ToString()); // todo: improve with actual pos
 
-         return (CurrentToken = str);
+         //return (CurrentToken = str);
+      }
+
+      public void Advance(Terminal term)
+      {
+         AdvanceInterleaved();
+
+         if (term is StringTerminal)
+            Advance(((StringTerminal)term).TerminalString);
+         else
+         {
+            Char tChar = Expression[Position];
+            Position += 1;
+            if (!term.Matches(tChar, 0))
+               throw new InvalidOperationException("expected single char terminal match - got " + tChar);
+         }
+
+         AdvanceInterleaved();
       }
       
       /// <summary>
@@ -481,12 +536,12 @@ namespace Parser
       public String Label; // used for debugging only todo: can use a class type for each type of node (?)
 
       public Boolean Optional = false;
-      public Func<Int32, String[]> GetDecisionTerminals;
+      public Func<Int32, Terminal[]> GetDecisionTerminals;
       public Action<ParseContext> Parse;
 
       //public String FindLookaheadTerminal(String terminal) = s => null;
-      public Func<String, List<String>, Boolean> LookaheadTerminals = (s, l) => true; // return true if route is exhausted, false otherwise
-      public Func<String, Boolean> ParsesTerminal = s => false; // todo: can't we do better?
+      public Func<Terminal, List<Terminal>, Boolean> LookaheadTerminals = (s, l) => true; // return true if route is exhausted, false otherwise
+      public Func<Terminal, Boolean> ParsesTerminal = s => false; // todo: can't we do better?
 
       public Func<Stack<ParseNode>, Boolean> Primer;
 
@@ -516,7 +571,7 @@ namespace Parser
          return Mode == PrimeMode.Primed;
       }
 
-      public String[] DoGetDecisionTerminals(Int32 pLevel) // todo: rename this and lambda
+      public Terminal[] DoGetDecisionTerminals(Int32 pLevel) // todo: rename this and lambda
       {
          switch (Mode)
          {
@@ -539,7 +594,7 @@ namespace Parser
    public class LookaheadParseNode : ParseNode
    {
       // todo: must make this more general, ability to add nodes if conflicts are more general...
-      public LookaheadParseNode(String terminalStr, ParseNode left, ParseNode right)
+      public LookaheadParseNode(Terminal terminalStr, ParseNode left, ParseNode right)
       {
          Label = "LOOKAHEAD";
          GetDecisionTerminals = (level) =>
@@ -549,14 +604,14 @@ namespace Parser
 
         //Dictionary<String, ParseNode> tParseTable = new Dictionary<string,ParseNode>();
          ParseTable<ParseNode> tParseTable = new ParseTable<ParseNode>();
-         List<String> tLookaheadTerminals = new List<String>();
+         List<Terminal> tLookaheadTerminals = new List<Terminal>();
          left.LookaheadTerminals(terminalStr, tLookaheadTerminals);
-         foreach (String tTerminal in tLookaheadTerminals)
+         foreach (Terminal tTerminal in tLookaheadTerminals)
             tParseTable.AddTerminal(tTerminal, left);
             //tParseTable[tTerminal] = left;
          tLookaheadTerminals.Clear();
          right.LookaheadTerminals(terminalStr, tLookaheadTerminals);
-         foreach (String tTerminal in tLookaheadTerminals)
+         foreach (Terminal tTerminal in tLookaheadTerminals)
             tParseTable.AddTerminal(tTerminal, right); // todo as below
             //tParseTable[tTerminal] = right; // todo: must catch key already found exception better
         
@@ -564,26 +619,25 @@ namespace Parser
          Parse = c =>
             {
                Int32 tPosition = c.Position;
+
                c.Advance(terminalStr);
-               c.AdvanceInterleaved(); // todo... dont want this like this -> integrate walker into context
+
+               //if (terminalStr is StringTerminal) // todo: again put into context
+               //   c.Advance(((StringTerminal)terminalStr).TerminalString);
+               //else
+               //   c.Position += 1; // match is automatic
+
+               //c.AdvanceInterleaved(); // todo... dont want this like this -> integrate walker into context
                var tWalker = tParseTable.GetWalker();
                for (Int32 i = c.Position; i < c.Expression.Length && tWalker.Narrows(c.Expression[i]); i++) ;
                if (tWalker.Value == null)
-                  throw new Exception("expected oned of " + tParseTable.Terminals.ToArray().ToString());
+                  throw new Exception("expected oned of " + String.Join<Terminal>(", ", tParseTable.Terminals));
                //RaiseExpectedTerminals(c, tParseTable.Terminals);
                else
                {
                   c.Position = tPosition; // reset
                   tWalker.Value.Parse(c); // parse
                }
-
-
-               //// Back up current position.
-               //Int32 tPos = c.Position;
-               //c.Advance(terminalStr); // expect this terminal
-               //ParseNode tChosenNode = tParseTable[c.Peek()]; // todo: same problem as always... 
-               //c.Position = tPos;
-               //tChosenNode.Parse(c);
             };
       }
    }
@@ -627,11 +681,42 @@ namespace Parser
    {
       public abstract Boolean Matches(Char pChar, Int32 pPosition);
 
+      public abstract Boolean ConflictsWith(Terminal pOther);
+   }
+
+   public class EofTerminal : Terminal
+   {
+      public override bool Matches(char pChar, int pPosition)
+      {
+         return true;
+      }
+
+      public override bool ConflictsWith(Terminal pOther)
+      {
+         return (pOther is EofTerminal);
+      }
+
+      public override string ToString()
+      {
+         return "EOF";
+      }
+
+      public override bool Equals(object obj)
+      {
+         return obj is EofTerminal;
+      }
+
+      public override int GetHashCode()
+      {
+         return 42;
+      }
    }
 
    public class StringTerminal : Terminal
    {
       protected String mTerminalStr;
+
+      public String TerminalString { get { return mTerminalStr; } }
 
       public StringTerminal(String terminalStr)
       {
@@ -642,7 +727,7 @@ namespace Parser
 
       public override bool Matches(char pChar, int pPosition)
       {
-         return pPosition < mTerminalStr.Length && mTerminalStr[pPosition] == pChar;
+         return (pPosition < mTerminalStr.Length && mTerminalStr[pPosition] == pChar); // || pPosition >= mTerminalStr.Length;
       }
 
       public override int GetHashCode()
@@ -655,16 +740,52 @@ namespace Parser
          StringTerminal tOther = obj as StringTerminal;
          return tOther != null && tOther.mTerminalStr == mTerminalStr; // todo: equals?
       }
+
+      public override string ToString()
+      {
+         return "\"" + mTerminalStr + "\"";
+      }
+
+      public override bool ConflictsWith(Terminal pOther)
+      {
+         if (pOther is StringTerminal)
+            return ((StringTerminal)pOther).mTerminalStr == mTerminalStr;
+
+         if (pOther is RangeTerminal || pOther is ChoiceTerminal)
+            // Conflict only if we are 1 length, otherwise narrowing will continue.
+            return mTerminalStr.Length == 1 && pOther.Matches(mTerminalStr[0], 0);
+
+         throw new InvalidOperationException("unknown terminal type");
+
+         //switch (pOther.GetType())
+         //{
+         //   case typeof(StringTerminal):
+         //      break;
+
+         //   case typeof(RangeTerminal):
+         //      break;
+
+         //   case typeof(ChoiceTerminal):
+         //      break;
+
+         //   case typeof(NegationTerminal):
+         //      break;
+
+         //   default:
+         //      throw new InvalidOperationException("unknown terminal type");
+         //}
+      }
    }
 
    public class RangeTerminal : Terminal
    {
-      protected Char mLow, mHigh;
+      public Char Low { get; protected set; }
+      public Char High { get; protected set; }
 
       public RangeTerminal(Char lower, Char higher)
       {
-         mLow = lower;
-         mHigh = higher;
+         Low = lower;
+         High = higher;
       }
 
       public override bool Matches(char pChar, int pPosition)
@@ -672,63 +793,92 @@ namespace Parser
          if (pPosition != 0)
             return false;
 
-         return pChar >= mLow && pChar <= mHigh;
+         return pChar >= Low && pChar <= High;
       }
 
       public override int GetHashCode()
       {
-         return mLow.GetHashCode() ^ mHigh.GetHashCode();
+         return Low.GetHashCode() ^ High.GetHashCode();
       }
 
       public override bool Equals(object obj)
       {
          RangeTerminal tOther = obj as RangeTerminal;
-         return tOther != null && tOther.mLow == mLow && tOther.mHigh == mHigh;
-      }
-   }
-
-   public class NegationTerminal : Terminal
-   {
-      protected Char[] mChars;
-
-      public NegationTerminal(params Char[] chars)
-      {
-         if (chars.Length == 0)
-            throw new ArgumentException("no chars in negation terminal");
-         mChars = chars;
+         return tOther != null && tOther.Low == Low && tOther.High == High;
       }
 
-      public override bool Matches(char pChar, int pPosition)
+      public override string ToString()
       {
-         if (pPosition != 0)
-            return false;
+         return "[" + Low + "-" + High + "]";
+      }
 
-         for (Int32 i = 0; i < mChars.Length; i++)
-            if (mChars[i] == pChar)
-               return false;
+      public override bool ConflictsWith(Terminal pOther)
+      {
+         if (pOther is RangeTerminal)
+         {
+            RangeTerminal tOther = (RangeTerminal)pOther;
+            return (tOther.Low >= this.Low && tOther.Low <= this.High) || (tOther.High <= this.High && tOther.High >= this.Low);
+         }
 
-         return true;
+         return pOther.ConflictsWith(this);
       }
    }
 
    public class ChoiceTerminal : Terminal
    {
-      protected Char[] mChars;
+      public Char[] Chars;
+      public Boolean Negated;
 
-      public ChoiceTerminal(params Char[] chars)
+      public ChoiceTerminal(Boolean pNegate, params Char[] chars)
       {
          if (chars.Length == 0)
             throw new ArgumentException("no chars in choice terminal");
-         mChars = chars;
+
+         Chars = chars; // copy?
+         Negated = pNegate;
       }
 
       public override bool Matches(char pChar, int pPosition)
       {
-         for (Int32 i = 0; i < mChars.Length; i++)
-            if (pChar == mChars[i])
-               return true;
+         for (Int32 i = 0; i < Chars.Length; i++)
+            if (pChar == Chars[i])
+               return true && !Negated;
 
-         return false;
+         return Negated;
+      }
+
+      public override int GetHashCode()
+      {
+         return Negated.GetHashCode() ^ Chars.GetHashCode();
+      }
+
+      public override bool Equals(object obj)
+      {
+         ChoiceTerminal tOther = obj as ChoiceTerminal;
+         return tOther != null && tOther.Negated == this.Negated && Array.Equals(tOther.Chars, this.Chars);
+      }
+
+      public override string ToString()
+      {
+         return "[" + (Negated ? "^" : "") + String.Join("", Chars) + "]";
+      }
+
+      public override bool ConflictsWith(Terminal pOther)
+      {
+         if (pOther is StringTerminal)
+            ((StringTerminal)pOther).ConflictsWith(this);
+
+         if (Negated)
+         {
+            return true;
+         }
+         else
+         {
+            foreach (Char tChar in Chars)
+               if (pOther.Matches(tChar, 0))
+                  return true;
+            return false;
+         }
       }
    }
 
@@ -746,71 +896,82 @@ namespace Parser
    // - im not user if we could get that much faster, we still have to make the choice at each point, may be able to cache a prefix
    public class ParseTable<T> where T : class
    {
-      protected Dictionary<String, T> Table = new Dictionary<string, T>();
+      protected Dictionary<Terminal, T> Table = new Dictionary<Terminal, T>();
 
-      public void AddTerminal(String terminalStr, T node) 
+      public void AddTerminal(String terminalStr, T node)
       {
-         if (String.IsNullOrEmpty(terminalStr))
+         AddTerminal(new StringTerminal(terminalStr), node);
+      }
+
+      public void AddTerminal(Terminal pTerm, T node) 
+      {
+         if (pTerm == null)
             throw new ArgumentException("key empty or null");
 
          if (node == null)
             throw new ArgumentException("value is null");
 
-         Table.Add(terminalStr, node);
+         Table.Add(pTerm, node);
       }
 
-      public Boolean ContainsTerminal(String terminalStr)
+      public Boolean ContainsTerminal(Terminal pTerminal)
       {
-         return Table.ContainsKey(terminalStr);
+         return Table.ContainsKey(pTerminal);
       }
 
-      public T this[String terminalStr]
+      public Boolean HasConflictingTerminal(Terminal pTerminal)
       {
-         get { return Table[terminalStr]; }
+         //Boolean tResult = Table.Any(t => pTerminal.ConflictsWith(t.Key));
+         //return tResult;
+         foreach (Terminal tTerminal in Table.Keys)
+            if (tTerminal.ConflictsWith(pTerminal))
+               return true;
+         return false;
+      }
+
+      public T this[Terminal pTerm]
+      {
+         get { return Table[pTerm]; }
          set 
          {
             if (value == null)
                throw new ArgumentNullException();
 
-            Table[terminalStr] = value; 
+            Table[pTerm] = value; 
          }
       }
 
-      public Boolean TryGetNode(String terminalStr, out T node)
+      public Boolean TryGetNode(Terminal pTerm, out T node)
       {
-         return Table.TryGetValue(terminalStr, out node);
+         return Table.TryGetValue(pTerm, out node);
       }
 
-      public IEnumerable<String> Terminals { get { return Table.Keys; } }
-
-      //// hideously inefficient
-      //public Boolean ContainsKeyPrefix(String key)
-      //{
-      //   if (String.IsNullOrEmpty(key))
-      //      return false;
-
-      //   Walker tWalker = new Walker(Table);
-      //   Int32 tCount = 0;
-      //   for (Int32 i = 0; i < key.Length && tWalker.Narrows(key[i], out tCount); i++) ;
-
-      //   return tCount == 1;
-      //}
+      public IEnumerable<Terminal> Terminals { get { return Table.Keys; } }
 
       public Walker GetWalker()
       {
-         return new Walker(Table);
+         return new Walker(Table, -1);
       }
 
       public class Walker
       {
-         public Walker(Dictionary<String, T> pTable) { mTable = pTable; }
+         public Walker(Dictionary<Terminal, T> pTable, Int32 pMaxLength) 
+         {
+            mTable = pTable;
+            mMatchSet = new HashSet<Terminal>();
+            foreach (Terminal tTerminal in mTable.Keys)
+               mMatchSet.Add(tTerminal);
 
-         protected String mLastFullKey;
-         protected String mKey;
-         protected String mBuffer = "";
-         protected Dictionary<String, T> mTable;
+            MaxLength = pMaxLength;
+         }
+
+         protected HashSet<Terminal> mMatchSet;
+         protected Dictionary<Terminal, T> mTable;
+         protected Boolean mNarrowed = false;
 
          public Int32 Count = 0;
+         public Int32 NumberRead = 0;
+         public Int32 MaxLength;
 
          public Boolean Narrows(Char pChar)
          {
@@ -818,32 +979,32 @@ namespace Parser
             return Narrows(pChar, out tCount);
          }
 
+         // todo: I have taken out a case of a shared prefix, e.g. foo and foobar. Must add back in.
          // Returns true if the char narrows the search, but is not yet unambiguous.
          // Returns false if no results or a single result remain.
          // True indicates the search narrows but is not yet finished.
          // todo: inefficient
          public Boolean Narrows(Char pChar, out Int32 tCount)
          {
-            mBuffer += pChar;
+            tCount = mMatchSet.Count;
+            
+            if (mNarrowed && mMatchSet.Count <= 1)
+               return false;
 
-            tCount = 0;
+            mNarrowed = true; // indicates we have narrowed, may not happen if, say, eof was reached
 
-            foreach (String tKey in mTable.Keys)
-               if (tKey.StartsWith(mBuffer))
+            Terminal[] tMatchTerms = mMatchSet.ToArray(); // todo: avoid this
+
+            foreach (Terminal tKey in tMatchTerms)
+               if (!tKey.Matches(pChar, NumberRead))
                {
-                  if (tKey.Length == mBuffer.Length)
-                     mLastFullKey = tKey;
-
-                  mKey = tKey;
-                  tCount += 1;
+                  mMatchSet.Remove(tKey);
                }
 
-            if (tCount > 1)
-            {
-               mKey = null;
-               return true; // it narrowed, there's more
-            }
-               return false; // can stop, key is found (or not, but that's a parse error)
+            tCount = mMatchSet.Count;
+            NumberRead += 1;
+
+            return mMatchSet.Count > 1;
          }
 
          // assumes things have narrowed...
@@ -851,19 +1012,12 @@ namespace Parser
          {
             get
             {
-               if (mKey == null)
-               {
-                  if (mLastFullKey == null)
-                     return null;
+               if (mMatchSet.Count == 0 || !mNarrowed)
+                  return null;
+               if (mMatchSet.Count > 1)
+                  throw new InvalidOperationException("must narrow");
 
-                  return mTable[mLastFullKey];
-               }
-               else
-                  return mTable[mKey];
-               //foreach (String tKey in mTable.Keys)
-               //   if (tKey.StartsWith(mBuffer))
-               //      return mTable[tKey];
-               //throw new Exception("value not found");
+               return mTable[mMatchSet.First()];
             }
          }
       }
