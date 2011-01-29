@@ -10,15 +10,44 @@ namespace SimpleConsoleTests
 {
    class Program
    {
+      static Boolean ReadLine(ref String line)
+      {
+         return (line = Console.ReadLine()) != "\\q";
+      }
+
       static void Main(String[] args)
       {
          // (a | b) b
 
-         String tInput;
-         while((tInput = Console.ReadLine()) != "\\quit")
+         String tInput = "";
+         for (; ; ) 
             try
             {
-               Console.WriteLine("Parsed: " + Regex.Parse(tInput));
+               Regex tLeft, tRight;
+               Console.Write("Enter regex 1: ");
+               if (!ReadLine(ref tInput))
+                  return;
+               Console.WriteLine("Parsed: " + (tLeft = Regex.Parse(tInput)));
+
+               Console.Write("Enter regex 2: ");
+               if (!ReadLine(ref tInput))
+                  return;
+               Console.WriteLine("Parsed: " + (tRight = Regex.Parse(tInput)));
+
+               // todo: this is not the way we want to do the intersection
+               Regex tRewrite = new ChoiceRegex() { Left = tLeft, Right = tRight }.Rewrite();
+
+               // split up:
+               tLeft = ((ChoiceRegex)tRewrite).Left;
+               tRight = ((ChoiceRegex)tRewrite).Right;
+
+               //Console.WriteLine("Rewritten: " + (tLeft = Regex.Parse(tInput).Rewrite()));
+
+               //Console.WriteLine("Rewritten: " + (tRight = Regex.Parse(tInput).Rewrite()));
+
+               Console.WriteLine("Equal: " + tLeft.SemanticEquals(tRight));
+               Console.WriteLine("Intersect: " + tLeft.Intersects(tRight) + " - intersection is " + tLeft.Intersect(new Dictionary<Pair,Regex>(), 0, tRight));
+
             }
             catch (Exception e)
             {
