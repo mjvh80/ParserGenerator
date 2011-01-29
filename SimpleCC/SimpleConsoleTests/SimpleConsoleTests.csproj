@@ -47,6 +47,10 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\SimpleRegexIntersector\SimpleRegexIntersector.csproj">
+      <Project>{C9C709A7-3188-4BA9-B5F5-C2D9BE1707BB}</Project>
+      <Name>SimpleRegexIntersector</Name>
+    </ProjectReference>
     <ProjectReference Include="..\..\XPath2\XPath2.csproj">
       <Project>{6B578367-98D5-4231-AD46-80759ED8EE72}</Project>
       <Name>XPath2</Name>

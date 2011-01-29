@@ -4,11 +4,44 @@ using System.Linq;
 using System.Text;
 using Parser;
 using XPath2.Parser;
+using SimpleRegexIntersector;
 
 namespace SimpleConsoleTests
 {
    class Program
    {
+      static void Main(String[] args)
+      {
+         // (a | b) b
+
+         String tInput;
+         while((tInput = Console.ReadLine()) != "\\quit")
+            try
+            {
+               Console.WriteLine("Parsed: " + Regex.Parse(tInput));
+            }
+            catch (Exception e)
+            {
+               Console.WriteLine("ERROR: " + e.Message);
+            }
+
+
+         //Regex tAnyZ = new KleeneRegex() { Operand = new LetterRegex() { Letter = 'z' } };
+         //Regex tChoice = new ChoiceRegex() { Left = tAnyZ, Right = new LetterRegex() { Letter = 'a' } };
+
+         //Regex tOne = new SeqRegex() { Left = tChoice, Right = new LetterRegex() { Letter = 'c' } };
+         //Regex tTwo = new SeqRegex() { Left = new LetterRegex() { Letter = 'a' }, Right = new LetterRegex() { Letter = 'b' } };
+
+         //Console.WriteLine("One: " + tOne);
+         //Console.WriteLine("Two: " + tTwo);
+
+         //Console.WriteLine("Equal: " + tOne.SemanticEquals(tTwo));
+         //Console.WriteLine("Intersect: " + tOne.Intersects(tTwo));
+         //Console.WriteLine("Intersection: " + tOne.Intersect(new Dictionary<Pair, Regex>(), 0, tTwo));
+
+         //Console.Read();
+      }
+
       class Foo { public Int32 Bar = 1; }
 
       static void Main2(String[] args)
@@ -26,7 +59,7 @@ namespace SimpleConsoleTests
       static void Two(ref Foo foo) { foo.Bar = 2; }
       static void Two(List<Foo> list) { list[0].Bar = 2; }
 
-      static void Main(string[] args)
+      static void Main3(string[] args)
       {
          for(;;)
          {

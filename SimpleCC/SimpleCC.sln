@@ -16,6 +16,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleConsoleTests", "SimpleConsoleTests\SimpleConsoleTests.csproj", "{586C3E5D-6F37-428E-AFF3-8BE803BAF7BE}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleRegexIntersector", "..\SimpleRegexIntersector\SimpleRegexIntersector.csproj", "{C9C709A7-3188-4BA9-B5F5-C2D9BE1707BB}"
+EndProject
 Global
 	GlobalSection(TestCaseManagementSettings) = postSolution
 		CategoryFile = SimpleCC.vsmdi
@@ -69,6 +71,16 @@ Global
 		{586C3E5D-6F37-428E-AFF3-8BE803BAF7BE}.Release|Mixed Platforms.Build.0 = Release|x86
 		{586C3E5D-6F37-428E-AFF3-8BE803BAF7BE}.Release|x86.ActiveCfg = Release|x86
 		{586C3E5D-6F37-428E-AFF3-8BE803BAF7BE}.Release|x86.Build.0 = Release|x86
+		{C9C709A7-3188-4BA9-B5F5-C2D9BE1707BB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C9C709A7-3188-4BA9-B5F5-C2D9BE1707BB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C9C709A7-3188-4BA9-B5F5-C2D9BE1707BB}.Debug|Mixed Platforms.ActiveCfg = Debug|Any CPU
+		{C9C709A7-3188-4BA9-B5F5-C2D9BE1707BB}.Debug|Mixed Platforms.Build.0 = Debug|Any CPU
+		{C9C709A7-3188-4BA9-B5F5-C2D9BE1707BB}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{C9C709A7-3188-4BA9-B5F5-C2D9BE1707BB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C9C709A7-3188-4BA9-B5F5-C2D9BE1707BB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C9C709A7-3188-4BA9-B5F5-C2D9BE1707BB}.Release|Mixed Platforms.ActiveCfg = Release|Any CPU
+		{C9C709A7-3188-4BA9-B5F5-C2D9BE1707BB}.Release|Mixed Platforms.Build.0 = Release|Any CPU
+		{C9C709A7-3188-4BA9-B5F5-C2D9BE1707BB}.Release|x86.ActiveCfg = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

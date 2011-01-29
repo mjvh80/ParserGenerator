@@ -11,6 +11,19 @@ using System.Text;
 //  - how to deal with 1 lookahead? cache 2?
 //
 // 2. EOF should become a special terminal, EofTerminal.
+// 3. Having introduced more general terminals gives us a problem where our current algorithm fails and lookahead is insufficient.
+//    eg /a/ vs /attribute::* (or to select a node //attribute/...) etc.
+//    To solve this we need to introduce a general terminal, this terminal is a regular expression.
+//    In order to be able to deal with lookahead, we need to be able to tell if 2 regular expressions have an intersection.
+//    This is needed as we can not simply produce a general lookahead table, as we may have conflicts, eg 'a' '::' | 'b' '::', in this case
+//    no lookahead table is needed as the prefixes do not intersect. Proposed algorithm:
+//  a. for each current terminal, see if it's a match (we could do this by generating a single regex, marking each with a named group).
+//  b. if 0 matches: parse error
+//     if 1 match: ok, choose
+//     if >= 2 matches: lookahead needed, so perform parsing of lookahead terminals (regexes).
+//       if >= 2 match < invalid operation, should have been detected by not allowing an intersection
+//       if 1 match: ok, got our lookahead -> parse
+//       if 0 matches: parse error
 
 namespace Parser
 {
