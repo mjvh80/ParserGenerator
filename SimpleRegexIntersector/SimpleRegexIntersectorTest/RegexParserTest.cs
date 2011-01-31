@@ -31,35 +31,35 @@ namespace SimpleRegexIntersectorTest
       [TestMethod]
       public void TestCorrectGrammar()
       {
-         Regex.Parse("a");
-         Regex.Parse("a|b");
-         Regex.Parse("ab");
-         Regex.Parse("a*");
-         Regex.Parse("a?");
-         Regex.Parse("a+");
-         Regex.Parse("a|(ab)");
-         Regex.Parse("\a");
-         Regex.Parse("[a-b]");
-         Regex.Parse("[\a-\b]");
-         Regex.Parse("[^a-b]");
-         Regex.Parse("[ab]");
-         Regex.Parse("[a]");
-         Regex.Parse("[^a]");
-         Regex.Parse("[^a\b]");
-         Regex.Parse("[^\a]");
+         SimpleRegex.Parse("a");
+         SimpleRegex.Parse("a|b");
+         SimpleRegex.Parse("ab");
+         SimpleRegex.Parse("a*");
+         SimpleRegex.Parse("a?");
+         SimpleRegex.Parse("a+");
+         SimpleRegex.Parse("a|(ab)");
+         SimpleRegex.Parse("\a");
+         SimpleRegex.Parse("[a-b]");
+         SimpleRegex.Parse("[\a-\b]");
+         SimpleRegex.Parse("[^a-b]");
+         SimpleRegex.Parse("[ab]");
+         SimpleRegex.Parse("[a]");
+         SimpleRegex.Parse("[^a]");
+         SimpleRegex.Parse("[^a\b]");
+         SimpleRegex.Parse("[^\a]");
       }
 
       [TestMethod]
       public void TestBadGrammar()
       {
-         AssertThrows(() => Regex.Parse(""));
-         AssertThrows(() => Regex.Parse("~"));
-         AssertThrows(() => Regex.Parse("a)"));
-         AssertThrows(() => Regex.Parse("()"));
-         AssertThrows(() => Regex.Parse("[]"));
-         AssertThrows(() => Regex.Parse("[b-a]")); // invalid range
-         AssertThrows(() => Regex.Parse("(a"));
-         AssertThrows(() => Regex.Parse("[a-b"));
+         AssertThrows(() => SimpleRegex.Parse(""));
+         AssertThrows(() => SimpleRegex.Parse("~"));
+         AssertThrows(() => SimpleRegex.Parse("a)"));
+         AssertThrows(() => SimpleRegex.Parse("()"));
+         AssertThrows(() => SimpleRegex.Parse("[]"));
+         AssertThrows(() => SimpleRegex.Parse("[b-a]")); // invalid range
+         AssertThrows(() => SimpleRegex.Parse("(a"));
+         AssertThrows(() => SimpleRegex.Parse("[a-b"));
       }
    }
 }
