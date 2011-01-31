@@ -332,7 +332,18 @@ namespace SimpleRegexIntersector
             }
 
          if (!tSplit)
-            yield return range;
+            yield return Range(range.Low, range.High); // ie NOT (necessarily) negated
+            //yield return range;
+      }
+
+      // Rewrites both in the same "context".
+      public static void Rewrite(ref SimpleRegex left, ref SimpleRegex right)
+      {
+         // for now, simply create a choice, this may not suffice if we ever decide to do more
+         // clever rewriting, eg by optimizing the tree
+         SimpleRegex tResult = Choice(left, right).Rewrite();
+         left = ((ChoiceRegex)tResult).Left;
+         right = ((ChoiceRegex)tResult).Right;
       }
 
       // Rewriting support for ranges and negation.
@@ -340,21 +351,20 @@ namespace SimpleRegexIntersector
       {
          SimpleRegex tResult = this;
 
-         Char[] tLetters = tResult.Sigma();
-
          HashSet<Char> tUsedSet = new HashSet<char>();
-         tUsedSet.AddRange(tLetters);
+         tUsedSet.AddRange(tResult.Sigma());
 
          // todo: add negated ones to Sigma??
          // all negated letters
-         HashSet<Char> tNegatedSet = new HashSet<char>();
-         tResult.Apply(r =>
-         {
-            if (r is NegatedLetterRegex)
-               tNegatedSet.Add(((NegatedLetterRegex)r).Letter);
+         //HashSet<Char> tNegatedSet = new HashSet<char>();
+         // Note: no longer do this, used Sigma instead.
+         //tResult.Apply(r =>
+         //{
+         //   if (r is NegatedLetterRegex)
+         //      tNegatedSet.Add(((NegatedLetterRegex)r).Letter);
 
-            return r;
-         });
+         //   return r;
+         //});
 
          // Process ranges by removing any characters used elsewhere.
          // [a-d] -> [a-b] | c | d if c and d used elsewhere, with negations appropriately applied.
@@ -364,7 +374,7 @@ namespace SimpleRegexIntersector
             if (r is RangeRegex)
             {
                RangeRegex tRange = (RangeRegex)r;
-               var tSplitRanges = SplitOnLetters(tRange, tUsedSet.Union(tNegatedSet));
+               var tSplitRanges = SplitOnLetters(tRange, tUsedSet);
                SimpleRegex tRewrite = Choice(from tSplitRange in tSplitRanges
                                         select tSplitRange.Length == 1 ?
                                            (SimpleRegex)Letter(tSplitRange.Low) : tSplitRange);
@@ -374,15 +384,9 @@ namespace SimpleRegexIntersector
             return r;
          });
 
-         // Update both character sets, as they may have changed.
+         // Update characters, may have added some.
          tUsedSet.AddRange(tResult.Sigma());
-         tResult.Apply(r =>
-         {
-            if (r is NegatedLetterRegex)
-               tNegatedSet.Add(((NegatedLetterRegex)r).Letter);
 
-            return r;
-         });
 
          // Process Ranges: rewriting with marker characters.
 
@@ -402,9 +406,14 @@ namespace SimpleRegexIntersector
          
          // 3. Create map from disjoint range to marker.
          Dictionary<RangeRegex, Char> tRangeMarkerMap = new Dictionary<RangeRegex, char>();
-         Char tMarkerStart = '\uf000'; // say, must find something "proper"
+         Char tMarkerStart = 'A';// '\uf000'; // say, must find something "proper"
          foreach (RangeRegex tDisjointRange in tDisjointRanges)
+         {
+            if (tMarkerStart == '\uffff')
+               throw new Exception("Markers exhausted"); // this is bad, but itll have to do for now..
+
             tRangeMarkerMap.Add(tDisjointRange, tMarkerStart += '\x0001');
+         }
          
          // 4. Rewrite regex tree with all ranges, rewriting with markers.
          tResult = tResult.Apply(r =>
@@ -420,16 +429,9 @@ namespace SimpleRegexIntersector
 
          // Again, update all characters: can probably be bit more clever about this.
          tUsedSet.AddRange(tResult.Sigma());
-         tResult.Apply(r =>
-         {
-            if (r is NegatedLetterRegex)
-               tNegatedSet.Add(((NegatedLetterRegex)r).Letter);
-
-            return r;
-         });
 
          // Rewrite all negations, and complete regexes (dot) using the magic marker.
-         Char tMagicMarker = '\uFADE';
+         Char tMagicMarker = 'Z'; // '\uFADE';
 
          // 1. Rewrite Complete regex:
          // . = toregex(used_chars)
@@ -443,25 +445,22 @@ namespace SimpleRegexIntersector
          // Create a map from not-char to replacement.
          
 
-         if (tUsedSet.Contains(tMagicMarker) || tNegatedSet.Contains(tMagicMarker))
+         if (tUsedSet.Contains(tMagicMarker))
             throw new Exception("magic marker is used");
 
          // Before we get out, rewrite .:
          tResult = tResult.Apply(r =>
          {
             if (r is CompleteRegex)
-               return Choice(from c in tNegatedSet.Union(tUsedSet) select Letter(c), Letter(tMagicMarker));
+               return Choice(from c in tUsedSet select Letter(c), Letter(tMagicMarker));
             return r;
          });
-
-         if (tNegatedSet.Count == 0)
-            return tResult; // nothing more to rewrite
 
          // Rewrite negations.
          tResult = tResult.Apply(r =>
          {
             if (r is NegatedLetterRegex)
-               return Choice(from c in tNegatedSet.Union(tUsedSet) where c != ((NegatedLetterRegex)r).Letter select Letter(c), Letter(tMagicMarker));
+               return Choice(from c in tUsedSet where c != ((NegatedLetterRegex)r).Letter select Letter(c), Letter(tMagicMarker));
             return r;
          });
 
@@ -991,8 +990,8 @@ namespace SimpleRegexIntersector
 
       public override char[] Sigma()
       {
-         // this class is only intended for a rewrite...
-         return new Char[0];
+         // NOTE: this class IS intended for rewrite.
+         return new Char[] { Letter };
       }
 
       public override string ToString()
