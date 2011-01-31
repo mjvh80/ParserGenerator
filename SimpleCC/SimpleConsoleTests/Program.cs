@@ -23,19 +23,19 @@ namespace SimpleConsoleTests
          for (; ; ) 
             try
             {
-               Regex tLeft, tRight;
+               SimpleRegex tLeft, tRight;
                Console.Write("Enter regex 1: ");
                if (!ReadLine(ref tInput))
                   return;
-               Console.WriteLine("Parsed: " + (tLeft = Regex.Parse(tInput)));
+               Console.WriteLine("Parsed: " + (tLeft = SimpleRegex.Parse(tInput)));
 
                Console.Write("Enter regex 2: ");
                if (!ReadLine(ref tInput))
                   return;
-               Console.WriteLine("Parsed: " + (tRight = Regex.Parse(tInput)));
+               Console.WriteLine("Parsed: " + (tRight = SimpleRegex.Parse(tInput)));
 
                // todo: this is not the way we want to do the intersection
-               Regex tRewrite = new ChoiceRegex() { Left = tLeft, Right = tRight }.Rewrite();
+               SimpleRegex tRewrite = new ChoiceRegex() { Left = tLeft, Right = tRight }.Rewrite();
 
                // split up:
                tLeft = ((ChoiceRegex)tRewrite).Left;
@@ -45,7 +45,7 @@ namespace SimpleConsoleTests
                Console.WriteLine("Rewritten (2): " + tRight);
 
                Console.WriteLine("Equal: " + tLeft.SemanticEquals(tRight));
-               Console.WriteLine("Intersect: " + tLeft.Intersects(tRight) + " - intersection is " + tLeft.Intersect(new Dictionary<Pair,Regex>(), 0, tRight));
+               Console.WriteLine("Intersect: " + tLeft.Intersects(tRight) + " - intersection is " + tLeft.Intersect(new Dictionary<Pair,SimpleRegex>(), 0, tRight));
 
             }
             catch (Exception e)
