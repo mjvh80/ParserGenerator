@@ -41,9 +41,8 @@ namespace SimpleConsoleTests
                tLeft = ((ChoiceRegex)tRewrite).Left;
                tRight = ((ChoiceRegex)tRewrite).Right;
 
-               //Console.WriteLine("Rewritten: " + (tLeft = Regex.Parse(tInput).Rewrite()));
-
-               //Console.WriteLine("Rewritten: " + (tRight = Regex.Parse(tInput).Rewrite()));
+               Console.WriteLine("Rewritten (1): " + tLeft);
+               Console.WriteLine("Rewritten (2): " + tRight);
 
                Console.WriteLine("Equal: " + tLeft.SemanticEquals(tRight));
                Console.WriteLine("Intersect: " + tLeft.Intersects(tRight) + " - intersection is " + tLeft.Intersect(new Dictionary<Pair,Regex>(), 0, tRight));

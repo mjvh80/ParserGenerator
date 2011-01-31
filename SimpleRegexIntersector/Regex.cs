@@ -141,12 +141,12 @@ namespace SimpleRegexIntersector
        * 
        * x, e -> (e, e)
        * x, var(x) -> (e, e)
-       * x, var(y) -> (e, y)
+       * x, var(y) -> (e, var(y)) <-- no change, we're not converting this one
        * x, seq(a,b) -> if (x in b):
        *               (a2, b2) = convert(x, b)
        *                  Seq(a, a2), b2              => (a a2, b2)
        *               else
-       *                  (e, r)                      => (e, a b)
+       *                  (e, r)                      => (e, a b)    <- no change
        * x, choice(a, b) -> (choice(a1, b1), choice(a2, b2)) => (a1 | b1), (a2 | b2)
        * x, star(a) -> (e, star(a)) => (e, a*)
        * 
@@ -180,7 +180,7 @@ namespace SimpleRegexIntersector
       // todo: compare a|b with b|a gives error...
       public Boolean Intersects(Regex other)
       {
-         return !Empty.SemanticEquals(this.Intersect(new Dictionary<Pair, Regex>(), 0, other).Convert(0));
+         return !Empty.SemanticEquals(this.Intersect(new Dictionary<Pair, Regex>(), 0, other));
       }
 
       public Regex Intersect(Dictionary<Pair, Regex> env, Int32 x, Regex r2)
@@ -208,11 +208,13 @@ namespace SimpleRegexIntersector
                tResult.Add(Sequence(Letter(tChar), r1c(tChar).Intersect(env, x + 1, r2c(tChar))));
             Regex tFinal;
             if (this.IsEmpty() && r2.IsEmpty())
-               tFinal = Choice(Choice(tResult), Empty);
+               tFinal = Choice(Choice(tResult), Empty); // empty is in the intersection
             else
                tFinal = Choice(tResult);
 
-            return tFinal.Convert(x + 1); // TODO: I ADDED THIS AS IT MAY BE A BUG... NOT IN ORIG CODE
+            // Remove the regex for this recursion level. Adjust M.S. algorithm.
+            env.Remove(Pair(this, r2));
+            return tFinal.Convert(x);
          }
       }
 
@@ -372,7 +374,8 @@ namespace SimpleRegexIntersector
             return r;
          });
 
-         // Update negated set, as we need it below and may have changed.
+         // Update both character sets, as they may have changed.
+         tUsedSet.AddRange(tResult.Sigma());
          tResult.Apply(r =>
          {
             if (r is NegatedLetterRegex)
@@ -415,6 +418,16 @@ namespace SimpleRegexIntersector
             return r;
          });
 
+         // Again, update all characters: can probably be bit more clever about this.
+         tUsedSet.AddRange(tResult.Sigma());
+         tResult.Apply(r =>
+         {
+            if (r is NegatedLetterRegex)
+               tNegatedSet.Add(((NegatedLetterRegex)r).Letter);
+
+            return r;
+         });
+
          // Rewrite all negations, and complete regexes (dot) using the magic marker.
          Char tMagicMarker = '\uFADE';
 
@@ -437,7 +450,7 @@ namespace SimpleRegexIntersector
          tResult = tResult.Apply(r =>
          {
             if (r is CompleteRegex)
-               return Choice(from c in tNegatedSet select Letter(c), Letter(tMagicMarker));
+               return Choice(from c in tNegatedSet.Union(tUsedSet) select Letter(c), Letter(tMagicMarker));
             return r;
          });
 
@@ -448,7 +461,7 @@ namespace SimpleRegexIntersector
          tResult = tResult.Apply(r =>
          {
             if (r is NegatedLetterRegex)
-               return Choice(from c in tNegatedSet where c != ((NegatedLetterRegex)r).Letter select Letter(c), Letter(tMagicMarker));
+               return Choice(from c in tNegatedSet.Union(tUsedSet) where c != ((NegatedLetterRegex)r).Letter select Letter(c), Letter(tMagicMarker));
             return r;
          });
 
@@ -664,9 +677,9 @@ namespace SimpleRegexIntersector
       public override Pair ConvertInternal(int x)
       {
          if (x == Value)
-            return Pair(Empty, Empty);
+            return Pair(Empty, Empty); // remove
          else
-            return Pair(Empty, this);
+            return Pair(Empty, this);  // keep it
       }
 
       public override bool Contains(int x)
@@ -922,7 +935,8 @@ namespace SimpleRegexIntersector
       // not(n(a) | e) = a & not(e) = a
       public override Regex Negate()
       {
-         return Choice(Empty, new NegatedLetterRegex() { Letter = this.Letter });
+         //return Choice(Empty, new NegatedLetterRegex() { Letter = this.Letter });
+         return NegatedLetter(this.Letter);
       }
    }
 
@@ -1213,11 +1227,12 @@ namespace SimpleRegexIntersector
          return f(this);
       }
 
-      // not (e) = a | b | ... all letters
-      // so not(not(e)) = not(a) & not(b) ... = ??? < todo: must introduce more e's
+      // not (e) = a | b | ... | zero, all letters plus zero
+      // so not(not(e)) = not(a) & not(b) ... & not(zero) = e
       public override Regex Negate()
       {
-         return Complete;  
+         //return Complete;  
+         return Choice(Complete, Zero);
       }
    }
 
