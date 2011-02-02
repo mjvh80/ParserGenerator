@@ -124,16 +124,16 @@ namespace SimpleRegexIntersector
       // Util for rewriting the tree.
       public abstract SimpleRegex Apply(Func<SimpleRegex, SimpleRegex> f);
       
-      protected static Pair Pair(SimpleRegex left, SimpleRegex right) { return new Pair() { Left = left, Right = right }; }
-      protected static ChoiceRegex Choice(SimpleRegex left, SimpleRegex right) { return new ChoiceRegex() { Left = left, Right = right }; }
-      protected static KleeneRegex Star(SimpleRegex op) { return new KleeneRegex() { Operand = op }; }
-      protected static SeqRegex Sequence(SimpleRegex left, SimpleRegex right) { return new SeqRegex() { Left = left, Right = right }; }
-      protected static VarRegex Var(Int32 x) { return new VarRegex() { Value = x }; }
-      protected static LetterRegex Letter(Char c) { return new LetterRegex() { Letter = c }; }
-      protected static NegatedLetterRegex NegatedLetter(Char c) { return new NegatedLetterRegex() { Letter = c }; }
-      protected static AndRegex And(SimpleRegex left, SimpleRegex right) { return new AndRegex() { Left = left, Right = right }; }
-      protected static SimpleRegex Not(SimpleRegex op) { return op.Negate(); }
-      protected static RangeRegex Range(Char lo, Char hi) { return new RangeRegex() { Low = lo, High = hi }; }
+      public static Pair Pair(SimpleRegex left, SimpleRegex right) { return new Pair() { Left = left, Right = right }; }
+      public static ChoiceRegex Choice(SimpleRegex left, SimpleRegex right) { return new ChoiceRegex() { Left = left, Right = right }; }
+      public static KleeneRegex Star(SimpleRegex op) { return new KleeneRegex() { Operand = op }; }
+      public static SeqRegex Sequence(SimpleRegex left, SimpleRegex right) { return new SeqRegex() { Left = left, Right = right }; }
+      public static VarRegex Var(Int32 x) { return new VarRegex() { Value = x }; }
+      public static LetterRegex Letter(Char c) { return new LetterRegex() { Letter = c }; }
+      public static NegatedLetterRegex NegatedLetter(Char c) { return new NegatedLetterRegex() { Letter = c }; }
+      public static AndRegex And(SimpleRegex left, SimpleRegex right) { return new AndRegex() { Left = left, Right = right }; }
+      public static SimpleRegex Not(SimpleRegex op) { return op.Negate(); }
+      public static RangeRegex Range(Char lo, Char hi) { return new RangeRegex() { Low = lo, High = hi }; }
 
       /* Performs a conversion to remove recursion:
        * 
@@ -177,10 +177,38 @@ namespace SimpleRegexIntersector
             return Zero;
       }
 
+      // Performs a rewrite and intersects.
+      public static Boolean RewritesIntersect(SimpleRegex left, SimpleRegex right)
+      {
+         SimpleRegex.Rewrite(ref left, ref right);
+         return left.Intersects(right);
+      }
+
+      public static Boolean RewritesEqual(SimpleRegex left, SimpleRegex right)
+      {
+         SimpleRegex.Rewrite(ref left, ref right);
+         return left.SemanticEquals(right);
+      }
+
+      public static Boolean RewritesCommonPrefix(SimpleRegex left, SimpleRegex right)
+      {
+         SimpleRegex.Rewrite(ref left, ref right);
+         return left.SharesCommonPrefixWith(right);
+      }
+
       // todo: compare a|b with b|a gives error...
       public Boolean Intersects(SimpleRegex other)
       {
-         return !Empty.SemanticEquals(this.Intersect(new Dictionary<Pair, SimpleRegex>(), 0, other));
+         // Second change to MS' code: compare with Zero as well:
+         SimpleRegex tIntersection = this.Intersect(new Dictionary<Pair, SimpleRegex>(), 0, other);
+         return !(Empty.SemanticEquals(tIntersection) || Zero.SemanticEquals(tIntersection));
+      }
+
+      public Boolean SharesCommonPrefixWith(SimpleRegex other)
+      {
+         // Second change to MS' code: compare with Zero as well:
+         SimpleRegex tPrefixIntersection = this.GetCommonPrefix(new Dictionary<Pair, SimpleRegex>(), 0, other);
+         return !(Empty.SemanticEquals(tPrefixIntersection) || Zero.SemanticEquals(tPrefixIntersection));
       }
 
       public SimpleRegex Intersect(Dictionary<Pair, SimpleRegex> env, Int32 x, SimpleRegex r2)
@@ -189,7 +217,7 @@ namespace SimpleRegexIntersector
             return Zero;
 
          if (this == Empty || r2 == Empty)
-            return Empty;
+            return Empty; // shouldn't this be Zero?
 
          SimpleRegex tEntry;
          if (env.TryGetValue(Pair(this, r2), out tEntry))
@@ -208,6 +236,50 @@ namespace SimpleRegexIntersector
                tResult.Add(Sequence(Letter(tChar), r1c(tChar).Intersect(env, x + 1, r2c(tChar))));
             SimpleRegex tFinal;
             if (this.IsEmpty() && r2.IsEmpty())
+               tFinal = Choice(Choice(tResult), Empty); // empty is in the intersection
+            else
+               tFinal = Choice(tResult);
+
+            // Remove the regex for this recursion level. Adjust M.S. algorithm.
+            env.Remove(Pair(this, r2));
+            return tFinal.Convert(x);
+         }
+      }
+
+      // R = A B
+      public SimpleRegex GetCommonPrefix(Dictionary<Pair, SimpleRegex> env, Int32 x, SimpleRegex r2)
+      {
+         // If any one is empty/zero, we should stop processing: we found our prefix.
+         if (this == Zero || r2 == Zero)
+            return Empty;
+
+         if (this == Empty || r2 == Empty)
+            return Empty;
+
+         SimpleRegex tEntry;
+         if (env.TryGetValue(Pair(this, r2), out tEntry))
+         {
+            // already seen, don't do it again
+            return tEntry;
+         }
+         else
+         {
+            Char[] tLetters = Choice(this, r2).Sigma();
+            env.Add(Pair(this, r2), Var(x));
+            Func<Char, SimpleRegex> r1c = c => Choice(this.PartialDeriv(c));
+            Func<Char, SimpleRegex> r2c = c => Choice(r2.PartialDeriv(c));
+            List<SimpleRegex> tResult = new List<SimpleRegex>(tLetters.Length);
+            foreach (Char tChar in tLetters)
+            {
+               SimpleRegex tLeft = r1c(tChar);
+               SimpleRegex tRight = r2c(tChar);
+               // (!Zero.SemanticEquals(tLeft) && !Zero.SemanticEquals(tRight))
+               if (!tLeft.IsZero() && !tRight.IsZero())
+                  tResult.Add(Sequence(Letter(tChar), tLeft.GetCommonPrefix(env, x + 1, tRight)));
+            }
+            SimpleRegex tFinal;
+            // If any is empty ("starts with empty"), empty is a result.
+            if (this.IsEmpty() || r2.IsEmpty())
                tFinal = Choice(Choice(tResult), Empty); // empty is in the intersection
             else
                tFinal = Choice(tResult);
@@ -822,7 +894,7 @@ namespace SimpleRegexIntersector
       {
          Pair tConvLeft = Left.ConvertInternal(x);
          Pair tConvRight = Right.ConvertInternal(x);
-         return Pair(Choice(tConvLeft.Left, tConvLeft.Right), Choice(tConvRight.Left, tConvRight.Right));
+         return Pair(Choice(tConvLeft.Left, tConvRight.Left), Choice(tConvLeft.Right, tConvRight.Right));
       }
 
       public override char[] Sigma()

@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
+using SimpleRegexIntersector;
 
 // 2 ideas:
 // 1. we can cache the current lookahead, advance takes a terminal as follows:
@@ -86,26 +88,7 @@ namespace Parser
 
       public static ParseNode Terminal(this String terminalExpression)
       {
-         Terminal tTerminal;
-
-         // Parse terminal expression. todo: improve parsing
-         if (terminalExpression.StartsWith("["))
-         {
-            if (terminalExpression.Contains("-"))
-               tTerminal = new RangeTerminal(terminalExpression[1], terminalExpression[3]);
-            else
-            {
-               Boolean tNegated = terminalExpression[1] == '^';
-               if (tNegated) // [^abc]
-                  tTerminal = new ChoiceTerminal(true, terminalExpression.Substring(2, terminalExpression.Length - 3).ToCharArray());
-               else
-                  tTerminal = new ChoiceTerminal(false, terminalExpression.Substring(1, terminalExpression.Length - 2).ToCharArray());
-            }
-         }
-         else if (terminalExpression.StartsWith("'"))
-            tTerminal = new StringTerminal(terminalExpression.Substring(1, terminalExpression.Length - 2)); // todo check last char etc.
-         else
-            tTerminal = new StringTerminal(terminalExpression);
+         Terminal tTerminal = new GeneralTerminal(terminalExpression);
 
          return new ParseNode()
          {
@@ -180,16 +163,29 @@ namespace Parser
 
                   // With all nodes primed, build parse table.
 
+                  //HashSet<Terminal> tConflictingTerminals = new HashSet<Terminal>();
+                  
+
+                  // todo: should we check if terminals of one node can conflict?
                   foreach (Terminal tTerminal in action.DoGetDecisionTerminals(0))
                      tParseTable.AddTerminal(tTerminal, action); // todo: better error handling if key found
+
                   foreach (ParseNode tOtherNode in otherActions)
                      foreach (Terminal tTerminal in tOtherNode.DoGetDecisionTerminals(0)) // todo: must do properly
-                        if (tParseTable.HasConflictingTerminal(tTerminal)) // todo: must do this everywhere...
-                        {
-                           tParseTable[tTerminal] = new LookaheadParseNode(tTerminal, tParseTable[tTerminal], tOtherNode);
-                        }
-                        else
-                           tParseTable.AddTerminal(tTerminal, tOtherNode);
+                     {
+                        tParseTable.AddTerminal(tTerminal, tOtherNode);
+                     }
+
+                  List<Terminal> tConflictingTerminals = new List<Parser.Terminal>();
+                  foreach (Terminal tTerm in tParseTable.Terminals)
+                     if (tParseTable.HasConflictingTerminal(tTerm))
+                        tConflictingTerminals.Add(tTerm);
+
+                  LookaheadParseNode tLookaheadNode = new LookaheadParseNode(tConflictingTerminals, tParseTable);
+
+                  // Replace with lookahead node.
+                  foreach (Terminal tConflictingTerminal in tConflictingTerminals)
+                     tParseTable[tConflictingTerminal] = tLookaheadNode;
 
                   return true; // we are primed
                },
@@ -213,35 +209,29 @@ namespace Parser
             },
             Parse = c => 
             {
-               Int32 tPosition = c.Position;
-               c.AdvanceInterleaved(); // todo: must integrate into walker
-               var tWalker = tParseTable.GetWalker();
-               for (Int32 i = c.Position; i < c.Expression.Length && tWalker.Narrows(c.Expression[i]); i++) ;
-               if (tWalker.Value == null)
-                  RaiseExpectedTerminals(c, tParseTable.Terminals);
-               else
-               {
-                  c.Position = tPosition;
-                  tWalker.Value.Parse(c);
-               }
-               
+               // todo: there is a way we can be much more efficient here.
+               // instead of looping through the parsetable, we can lift off of .nets regex engine:
+               // create a regex (( terminal 1) | ( terminal 2) | ... ), using named groups to distinguish the regexes.
 
-               //// Find correct branch, follow it.
-               //String tCurrentTerminal = c.Peek();
-               //ParseNode tActiveNode;
-               //if (tParseTable.TryGetValue(tCurrentTerminal, out tActiveNode))
-               //   tActiveNode.Parse(c);
-               //else // it may be that we peeked too much, do a binary search:
-               //{
-               //   // todo: omg, do this better, perhaps not even using a dict
-               //   tActiveNode = (from n in tParseTable.Keys where tCurrentTerminal.StartsWith(n) select tParseTable[n]).FirstOrDefault();
-               //   if (tActiveNode == null)
-               //      RaiseExpectedTerminals(c, tParseTable.Keys);
-               //   else
-               //      tActiveNode.Parse(c);
-               //}
+               
+               c.AdvanceInterleaved(); // todo: must integrate into walker EVEN NECESSARY NOW?
+               foreach (GeneralTerminal tTerminal in tParseTable.Terminals) // todo: remove anything but the general terminal
+                  if (tTerminal.CanAdvance(c)) // todo: combine into optAdvance?
+                  {
+                     tTerminal.AdvanceTerminal(c);
+                     return;
+                  }
+               
+               RaiseExpectedTerminals(c, tParseTable.Terminals); 
             },
-            LookaheadTerminals = (s,l) => tParseTable[s].LookaheadTerminals(s,l), // follow path to where we want lookahead terminals from
+            LookaheadTerminals = (s,l) => {
+               if (tParseTable.ContainsTerminal(s))
+               {
+                  return tParseTable[s].LookaheadTerminals(s, l);
+               } 
+               return false;
+
+            } , // follow path to where we want lookahead terminals from
             //ParsesTerminal = s => tParseTable.ContainsKey(s) && tParseTable[s].ParsesTerminal(s),
             Label = "OR(" + action.Label + OrLabels(otherActions) + ")",
             Optional = action.Optional || otherActions.Any(n => n.Optional),
@@ -355,6 +345,18 @@ namespace Parser
                         tParseTable = new ParseTable<ParseNode>();
                         foreach (Terminal tTerminal in node.DoGetDecisionTerminals(0))
                            tParseTable.AddTerminal(tTerminal, node);
+
+                        // Find conflicting terminals.
+                        HashSet<Terminal> tConflictingTerminals = new HashSet<Terminal>();
+                        foreach (Terminal tTerminal in tParseTable.Terminals)
+                           if (tParseTable.HasConflictingTerminal(tTerminal))
+                              tConflictingTerminals.Add(tTerminal);
+
+                        LookaheadParseNode tLookaheadNode = new LookaheadParseNode(tConflictingTerminals, tParseTable);
+
+                        // Replace with lookahead node.
+                        foreach (Terminal tConflictingTerminal in tConflictingTerminals)
+                           tParseTable[tConflictingTerminal] = tLookaheadNode;
                      }
                      return true;
                   }
@@ -374,21 +376,16 @@ namespace Parser
                for (Int32 i = 0; i < tCountLeft && tCountLeft > 0; i++)
                {
                   c.AdvanceInterleaved();
-                  Int32 tPosition = c.Position;
-                  var tWalker = tParseTable.GetWalker();
-                  for (Int32 k = c.Position; k < c.Expression.Length && tWalker.Narrows(c.Expression[k]); k++) ;
-                  c.Position = tPosition;
+                  foreach(GeneralTerminal tTerminal in tParseTable.Terminals)
+                     if (tTerminal.CanAdvance(c))
+                     {
+                        tTerminal.AdvanceTerminal(c);
+                        goto next;
+                     }
 
-                  if (tWalker.Value == null)
-                     break; // we're done
-                  else
-                     tWalker.Value.Parse(c);
+                  break; // we're done
 
-                  //String tCurrentTerminal = c.Peek();
-                  //if (tParseTable.ContainsKey(tCurrentTerminal))
-                  //   node.Parse(c);
-                  //else
-                  //   break; // we're done
+               next:;
                }
             },
             LookaheadTerminals = (s, termList) =>
@@ -469,6 +466,8 @@ namespace Parser
          if (i != str.Length)
             throw new ParseException("expected '{0}' around position {1}", str, Position.ToString()); // todo: improve with actual pos
 
+         // todo: advance interleaved again?
+
          //return (CurrentToken = str);
       }
 
@@ -476,15 +475,17 @@ namespace Parser
       {
          AdvanceInterleaved();
 
-         if (term is StringTerminal)
-            Advance(((StringTerminal)term).TerminalString);
-         else
-         {
-            Char tChar = Expression[Position];
-            Position += 1;
-            if (!term.Matches(tChar, 0))
-               throw new InvalidOperationException("expected single char terminal match - got " + tChar);
-         }
+         term.AdvanceTerminal(this);
+
+         //if (term is StringTerminal)
+         //   Advance(((StringTerminal)term).TerminalString);
+         //else
+         //{
+         //   Char tChar = Expression[Position];
+         //   Position += 1;
+         //   if (!term.Matches(tChar, 0))
+         //      throw new InvalidOperationException("expected single char terminal match - got " + tChar);
+         //}
 
          AdvanceInterleaved();
       }
@@ -527,22 +528,6 @@ namespace Parser
          return tResult;
       }
    }
-
-   //public class ParseNode_Or : ParseNode
-   //{
-
-   //}
-
-   //public class ParseNode
-   //{
-   //   public virtual String[] GetDecisionTerminals() { throw new NotImplementedException("todo"); }
-   //   public void Parse(ParseContext ctx)
-   //   {
-
-   //   }
-   //}
-
-   //public delegate void PrimeDelegate(Stack<PrimeDelegate> primeStack);
 
    public class ParseNode
    {
@@ -607,7 +592,14 @@ namespace Parser
    public class LookaheadParseNode : ParseNode
    {
       // todo: must make this more general, ability to add nodes if conflicts are more general...
-      public LookaheadParseNode(Terminal terminalStr, ParseNode left, ParseNode right)
+      /*
+       * Three terminals A B C may not all intersect, we may have that A and C intersect, and B and C but not A and C.
+       * At the moment I'll stick to the simple case where A B C are all assumed to intersect. We can generalize this
+       * by looking at intersection groups, and determining which group to go for during parsing (say A&C) and then deciding
+       * on the lookahead.
+       * */
+      //public LookaheadParseNode(Terminal pTerminal, ParseNode left, ParseNode right)
+      public LookaheadParseNode(IEnumerable<Terminal> pConflictingTerminals, ParseTable<ParseNode> origParseTable)
       {
          Label = "LOOKAHEAD";
          GetDecisionTerminals = (level) =>
@@ -615,42 +607,82 @@ namespace Parser
                throw new InvalidOperationException(); // todo: return terminalStr? I think it makes no sense to ask for dec. terminals here.
             };
 
-        //Dictionary<String, ParseNode> tParseTable = new Dictionary<string,ParseNode>();
+         // 1. Store a map to the original nodes.
+         ParseTable<ParseNode> tParseTable = new ParseTable<ParseNode>();
+         foreach (Terminal tTerminal in pConflictingTerminals)
+            tParseTable[tTerminal] = origParseTable[tTerminal];
+
+         // 2. Create a map from terminal to lookahead terminals.
+         Dictionary<Terminal, List<Terminal>> tLookaheadMap = new Dictionary<Terminal, List<Terminal>>();
+         
+         foreach (Terminal tTerminal in tParseTable.Terminals)
+         {
+            List<Terminal> tLookaheadTerminals = new List<Terminal>();
+            tParseTable[tTerminal].LookaheadTerminals(tTerminal, tLookaheadTerminals);
+            tLookaheadMap.Add(tTerminal, tLookaheadTerminals);
+         }
+
+         // 3. Determine if our lookahead map is unique.
+         foreach (GeneralTerminal tTerminal in tLookaheadMap.Keys)
+         {
+            SimpleRegex tLeftRegex = SimpleRegex.And(tTerminal.SimpleRegex,
+               SimpleRegex.Choice(from t in tLookaheadMap[tTerminal] select ((GeneralTerminal)t).SimpleRegex));
+
+            foreach (GeneralTerminal tOtherTerminal in tLookaheadMap.Keys)
+               if (tTerminal != tOtherTerminal) // todo: could be trouble if these were reused... must be aware
+               {
+                  SimpleRegex tRightRegex = SimpleRegex.And(tOtherTerminal.SimpleRegex,
+                     SimpleRegex.Choice(from t in tLookaheadMap[tOtherTerminal] select ((GeneralTerminal)t).SimpleRegex));
+
+                  // (tLeftRegex.Intersects(tRightRegex))
+                  // todo: could consider a sort of global rewrite, but e must know our complete alphabet then.
+                  if (SimpleRegex.RewritesIntersect(tLeftRegex, tRightRegex))
+                     throw new ParseException("inconclusive lookahead");
+               }                               
+         }
+        
+         /*
          ParseTable<ParseNode> tParseTable = new ParseTable<ParseNode>();
          List<Terminal> tLookaheadTerminals = new List<Terminal>();
-         left.LookaheadTerminals(terminalStr, tLookaheadTerminals);
+         left.LookaheadTerminals(pTerminal, tLookaheadTerminals);
          foreach (Terminal tTerminal in tLookaheadTerminals)
             tParseTable.AddTerminal(tTerminal, left);
-            //tParseTable[tTerminal] = left;
+         
          tLookaheadTerminals.Clear();
-         right.LookaheadTerminals(terminalStr, tLookaheadTerminals);
+         right.LookaheadTerminals(pTerminal, tLookaheadTerminals);
          foreach (Terminal tTerminal in tLookaheadTerminals)
             tParseTable.AddTerminal(tTerminal, right); // todo as below
-            //tParseTable[tTerminal] = right; // todo: must catch key already found exception better
+         */
         
-
          Parse = c =>
             {
                Int32 tPosition = c.Position;
 
-               c.Advance(terminalStr);
-
-               //if (terminalStr is StringTerminal) // todo: again put into context
-               //   c.Advance(((StringTerminal)terminalStr).TerminalString);
-               //else
-               //   c.Position += 1; // match is automatic
-
-               //c.AdvanceInterleaved(); // todo... dont want this like this -> integrate walker into context
-               var tWalker = tParseTable.GetWalker();
-               for (Int32 i = c.Position; i < c.Expression.Length && tWalker.Narrows(c.Expression[i]); i++) ;
-               if (tWalker.Value == null)
-                  throw new Exception("expected oned of " + String.Join<Terminal>(", ", tParseTable.Terminals));
-               //RaiseExpectedTerminals(c, tParseTable.Terminals);
-               else
+               foreach (GeneralTerminal tTerminal in tLookaheadMap.Keys)
                {
-                  c.Position = tPosition; // reset
-                  tWalker.Value.Parse(c); // parse
+                  if (tTerminal.CanAdvance(c))
+                  {
+                     tTerminal.AdvanceTerminal(c); // takes care of interleaving
+
+                     // Choose a lookahead terminal, and then proceed.
+                     foreach(GeneralTerminal tLookaheadTerminal in tLookaheadMap[tTerminal])
+                        if (tLookaheadTerminal.CanAdvance(c))
+                        {
+                           // don't need to advance: we got a hit
+                           //tLookaheadTerminal.AdvanceTerminal(c);
+
+                           // NOW we're in business.
+                           c.Position = tPosition; // reset for actual parsing (todo: this is a shame)
+                           tParseTable[tTerminal].Parse(c);
+                           return; // gtfo
+                        }
+
+                     // Failure, reset position, try next terminal.
+                     c.Position = tPosition;
+                  }
                }
+
+               throw new ParseException("parse error"); // todo: improve error -> how, maybe name terminals (defaulting to strings?, reflection?)
             };
       }
    }
@@ -692,11 +724,15 @@ namespace Parser
 
    public abstract class Terminal
    {
-      public abstract Boolean Matches(Char pChar, Int32 pPosition);
+      //public abstract Boolean Matches(Char pChar, Int32 pPosition);
+
+      public abstract Boolean CanAdvance(ParseContext ctx);
+      public abstract String AdvanceTerminal(ParseContext ctx);
 
       public abstract Boolean ConflictsWith(Terminal pOther);
    }
 
+#if false
    public class EofTerminal : Terminal
    {
       public override bool Matches(char pChar, int pPosition)
@@ -724,6 +760,75 @@ namespace Parser
          return 42;
       }
    }
+#endif
+
+   public class GeneralTerminal : Terminal
+   {
+      protected String mExpression;
+      protected Regex mRegex;
+      protected SimpleRegex mSimpleRegex;
+
+      public SimpleRegex SimpleRegex { get { return mSimpleRegex; } }
+
+      public GeneralTerminal(String expr)
+      {
+         mSimpleRegex = SimpleRegex.Parse(expr);
+         mRegex = new Regex("^(" + expr + ")", RegexOptions.CultureInvariant); // todo: options
+         mExpression = expr;
+      }
+
+      public override bool CanAdvance(ParseContext ctx)
+      {
+         return mRegex.IsMatch(ctx.Expression, ctx.Position);
+      }
+
+      public override String AdvanceTerminal(ParseContext ctx)
+      {
+         Match tFirstMatch = mRegex.Match(ctx.Expression, ctx.Position);
+         if (!tFirstMatch.Success)
+            throw new ParseException("failed to advance terminal"); // todo: improve
+         ctx.Position += tFirstMatch.Length;
+         return tFirstMatch.Value;
+      }
+
+      public override bool ConflictsWith(Terminal pOther)
+      {
+         if (pOther is GeneralTerminal)
+         {
+            //return mSimpleRegex.Intersects(((GeneralTerminal)pOther).mSimpleRegex);
+            SimpleRegex tLeft = mSimpleRegex;
+            SimpleRegex tRight = ((GeneralTerminal)pOther).mSimpleRegex;
+            SimpleRegex.Rewrite(ref tLeft, ref tRight);
+            //return tLeft.Intersects(tRight);
+            return tLeft.SharesCommonPrefixWith(tRight);
+         }
+         else
+            throw new InvalidOperationException("remove other terminals");
+      }
+
+      public override string ToString()
+      {
+         return mExpression;
+      }
+
+      //// We need this for Terminal.ParsesTerminal etc.
+      public bool SemanticEquals(object obj)
+      {
+         GeneralTerminal tOther = obj as GeneralTerminal;
+         if (tOther == null)
+            return false;
+
+         if (tOther.mExpression == mExpression) // todo: case for insensitivity
+            return true;
+
+         if (SimpleRegex.RewritesEqual(this.mSimpleRegex, tOther.mSimpleRegex))
+            return true;
+
+         return false;
+      }
+   }
+
+#if false
 
    public class StringTerminal : Terminal
    {
@@ -895,6 +1000,7 @@ namespace Parser
       }
    }
 
+   #endif
 
    // todo: this is a proof of concept, must use an efficient algorithm instead.
 
@@ -913,7 +1019,7 @@ namespace Parser
 
       public void AddTerminal(String terminalStr, T node)
       {
-         AddTerminal(new StringTerminal(terminalStr), node);
+         AddTerminal(new GeneralTerminal(terminalStr), node);
       }
 
       public void AddTerminal(Terminal pTerm, T node) 
@@ -936,9 +1042,11 @@ namespace Parser
       {
          //Boolean tResult = Table.Any(t => pTerminal.ConflictsWith(t.Key));
          //return tResult;
+
          foreach (Terminal tTerminal in Table.Keys)
-            if (tTerminal.ConflictsWith(pTerminal))
+            if (tTerminal != pTerminal && tTerminal.ConflictsWith(pTerminal))
                return true;
+
          return false;
       }
 
@@ -960,6 +1068,8 @@ namespace Parser
       }
 
       public IEnumerable<Terminal> Terminals { get { return Table.Keys; } }
+
+#if false
 
       public Walker GetWalker()
       {
@@ -1034,6 +1144,7 @@ namespace Parser
             }
          }
       }
+#endif
    }
 
   

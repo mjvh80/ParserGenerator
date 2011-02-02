@@ -25,7 +25,25 @@ namespace SimpleRegexIntersectorTest
          SimpleRegex tRight = SimpleRegex.Parse(right);
          SimpleRegex.Rewrite(ref tLeft, ref tRight);
          if (!tLeft.Intersects(tRight))
-            throw new Exception(String.Format("{0} is not equal to {1}: assertion failure", left, right));
+            throw new Exception(String.Format("{0} does not intersect {1}: assertion failure", left, right));
+      }
+
+      private void AssertDoesNotIntersect(String left, String right)
+      {
+         SimpleRegex tLeft = SimpleRegex.Parse(left);
+         SimpleRegex tRight = SimpleRegex.Parse(right);
+         SimpleRegex.Rewrite(ref tLeft, ref tRight);
+         if (tLeft.Intersects(tRight))
+            throw new Exception(String.Format("{0} intersects {1}: assertion failure", left, right));
+      }
+
+      private void AssertHaveCommonPrefix(String left, String right)
+      {
+         SimpleRegex tLeft = SimpleRegex.Parse(left);
+         SimpleRegex tRight = SimpleRegex.Parse(right);
+         SimpleRegex.Rewrite(ref tLeft, ref tRight);
+         if (!tLeft.SharesCommonPrefixWith(tRight))
+            throw new Exception(String.Format("{0} does not share a common prefix with {1}: assertion failure", left, right));
       }
 
       [TestMethod]
@@ -54,6 +72,27 @@ namespace SimpleRegexIntersectorTest
          AssertIntersects("~[a-c]", "d");
          AssertIntersects("~(a|b)", "d");
          AssertIntersects("abcd", "a[b-c]*d");
+      }
+
+      [TestMethod]
+      public void TestRegexNoIntersections()
+      {
+         AssertDoesNotIntersect("a", "aa"); // caused trouble, introduced Zero into semantic equality check
+         AssertDoesNotIntersect("a", "b");
+         AssertDoesNotIntersect("a|b", "c|d");
+         AssertDoesNotIntersect("~a", "a");
+         AssertDoesNotIntersect("~(a|b)", "a|b*");
+         AssertDoesNotIntersect("a|b|c", "[g-m]");
+      }
+
+      [TestMethod]
+      public void TestRegexPrefixIntersections()
+      {
+         AssertHaveCommonPrefix("a", "aa");
+         //AssertHaveCommonPrefix("a*", "b*"); //?
+         AssertHaveCommonPrefix("[a-z][b-p]obar", "foo");
+         AssertHaveCommonPrefix("[a-z]oo", "fo");
+         AssertHaveCommonPrefix("~a", "b");
       }
    }
 }

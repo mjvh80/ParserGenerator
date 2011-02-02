@@ -15,7 +15,7 @@ namespace SimpleConsoleTests
          return (line = Console.ReadLine()) != "\\q";
       }
 
-      static void Main(String[] args)
+      static void Main33(String[] args)
       {
          // (a | b) b
 
@@ -23,7 +23,7 @@ namespace SimpleConsoleTests
          for (; ; ) 
             try
             {
-               SimpleRegex tLeft, tRight;
+               SimpleRegex tLeft, tRight, tExpectedPrefix;
                Console.Write("Enter regex 1: ");
                if (!ReadLine(ref tInput))
                   return;
@@ -33,6 +33,11 @@ namespace SimpleConsoleTests
                if (!ReadLine(ref tInput))
                   return;
                Console.WriteLine("Parsed: " + (tRight = SimpleRegex.Parse(tInput)));
+
+               Console.Write("Enter expected prefix (no rewrite): ");
+               if (!ReadLine(ref tInput))
+                  return;
+               Console.WriteLine("Parsed: " + (tExpectedPrefix = SimpleRegex.Parse(tInput)));
 
                // todo: this is not the way we want to do the intersection
                SimpleRegex tRewrite = new ChoiceRegex() { Left = tLeft, Right = tRight }.Rewrite();
@@ -45,7 +50,9 @@ namespace SimpleConsoleTests
                Console.WriteLine("Rewritten (2): " + tRight);
 
                Console.WriteLine("Equal: " + tLeft.SemanticEquals(tRight));
+               Console.WriteLine("Matches exp. prefix: " + tLeft.GetCommonPrefix(new Dictionary<Pair, SimpleRegex>(), 0, tRight).SharesCommonPrefixWith(tExpectedPrefix));
                Console.WriteLine("Intersect: " + tLeft.Intersects(tRight) + " - intersection is " + tLeft.Intersect(new Dictionary<Pair,SimpleRegex>(), 0, tRight));
+               Console.WriteLine("Prefix intersect: " + tLeft.SharesCommonPrefixWith(tRight) + " - prefix intersection is " + tLeft.GetCommonPrefix(new Dictionary<Pair, SimpleRegex>(), 0, tRight));
 
             }
             catch (Exception e)
@@ -87,7 +94,7 @@ namespace SimpleConsoleTests
       static void Two(ref Foo foo) { foo.Bar = 2; }
       static void Two(List<Foo> list) { list[0].Bar = 2; }
 
-      static void Main3(string[] args)
+      static void Main(string[] args)
       {
          for(;;)
          {

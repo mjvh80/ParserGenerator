@@ -45,6 +45,12 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="XPath2\XPath2Parser.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SimpleRegexIntersector\SimpleRegexIntersector.csproj">
+      <Project>{C9C709A7-3188-4BA9-B5F5-C2D9BE1707BB}</Project>
+      <Name>SimpleRegexIntersector</Name>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
