@@ -274,15 +274,16 @@ namespace SimpleRegexIntersector
                SimpleRegex tLeft = r1c(tChar);
                SimpleRegex tRight = r2c(tChar);
                // (!Zero.SemanticEquals(tLeft) && !Zero.SemanticEquals(tRight))
-               if (!tLeft.IsZero() && !tRight.IsZero())
+               // If there is a non-zero partial derivative, there is a common prefix starting with tChar.
+               if (!tLeft.IsZero() && !tRight.IsZero()) // note: isZero checks if it IS zero, not CONTAINS
                   tResult.Add(Sequence(Letter(tChar), tLeft.GetCommonPrefix(env, x + 1, tRight)));
             }
             SimpleRegex tFinal;
             // If any is empty ("starts with empty"), empty is a result.
-            if (this.IsEmpty() || r2.IsEmpty())
-               tFinal = Choice(Choice(tResult), Empty); // empty is in the intersection
-            else
-               tFinal = Choice(tResult);
+           // if (this.IsEmpty() || r2.IsEmpty())
+               tFinal = Choice(Choice(tResult), Empty); // empty is a common prefix
+            //else
+            //   tFinal = Choice(tResult);
 
             // Remove the regex for this recursion level. Adjust M.S. algorithm.
             env.Remove(Pair(this, r2));

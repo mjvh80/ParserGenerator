@@ -106,7 +106,7 @@ namespace Parser
                //else
                //   c.Position += 1; // skip char -> todo: move to context, make method etc.
             },
-            ParsesTerminal = s => s.Equals(tTerminal)
+            ParsesTerminal = s => ((GeneralTerminal)s).SemanticEquals(tTerminal) // s.Equals(tTerminal)
          };
       }
 
@@ -173,7 +173,10 @@ namespace Parser
                   foreach (ParseNode tOtherNode in otherActions)
                      foreach (Terminal tTerminal in tOtherNode.DoGetDecisionTerminals(0)) // todo: must do properly
                      {
-                        tParseTable.AddTerminal(tTerminal, tOtherNode);
+                        if (tParseTable.ContainsTerminal(tTerminal))
+                           tParseTable.AddTerminal(tTerminal.Clone(), tOtherNode);
+                        else
+                           tParseTable.AddTerminal(tTerminal, tOtherNode);
                      }
 
                   List<Terminal> tConflictingTerminals = new List<Parser.Terminal>();
@@ -218,7 +221,8 @@ namespace Parser
                foreach (GeneralTerminal tTerminal in tParseTable.Terminals) // todo: remove anything but the general terminal
                   if (tTerminal.CanAdvance(c)) // todo: combine into optAdvance?
                   {
-                     tTerminal.AdvanceTerminal(c);
+                     //tTerminal.AdvanceTerminal(c);
+                     tParseTable[tTerminal].Parse(c);
                      return;
                   }
                
@@ -379,7 +383,8 @@ namespace Parser
                   foreach(GeneralTerminal tTerminal in tParseTable.Terminals)
                      if (tTerminal.CanAdvance(c))
                      {
-                        tTerminal.AdvanceTerminal(c);
+                        //tTerminal.AdvanceTerminal(c);
+                        tParseTable[tTerminal].Parse(c);
                         goto next;
                      }
 
@@ -619,10 +624,12 @@ namespace Parser
          {
             List<Terminal> tLookaheadTerminals = new List<Terminal>();
             tParseTable[tTerminal].LookaheadTerminals(tTerminal, tLookaheadTerminals);
+            //if (tLookaheadTerminals.Count == 0)
+            //   throw new ParseException("no lookahead terminals");
             tLookaheadMap.Add(tTerminal, tLookaheadTerminals);
          }
 
-         // 3. Determine if our lookahead map is unique.
+         // 3. Determine if our lookahead map is unique, every route is unique.
          foreach (GeneralTerminal tTerminal in tLookaheadMap.Keys)
          {
             SimpleRegex tLeftRegex = SimpleRegex.And(tTerminal.SimpleRegex,
@@ -653,7 +660,15 @@ namespace Parser
          foreach (Terminal tTerminal in tLookaheadTerminals)
             tParseTable.AddTerminal(tTerminal, right); // todo as below
          */
-        
+
+         // this was added SINCE I added lookahead logic...
+         LookaheadTerminals = (s, l) =>
+         {
+            if (tParseTable.ContainsTerminal(s))
+               return tParseTable[s].LookaheadTerminals(s, l);
+            return false;
+         };
+
          Parse = c =>
             {
                Int32 tPosition = c.Position;
@@ -728,6 +743,7 @@ namespace Parser
 
       public abstract Boolean CanAdvance(ParseContext ctx);
       public abstract String AdvanceTerminal(ParseContext ctx);
+      public abstract Terminal Clone();
 
       public abstract Boolean ConflictsWith(Terminal pOther);
    }
@@ -773,13 +789,19 @@ namespace Parser
       public GeneralTerminal(String expr)
       {
          mSimpleRegex = SimpleRegex.Parse(expr);
-         mRegex = new Regex("^(" + expr + ")", RegexOptions.CultureInvariant); // todo: options
+         mRegex = new Regex(expr, RegexOptions.CultureInvariant); // todo: options
          mExpression = expr;
       }
 
       public override bool CanAdvance(ParseContext ctx)
       {
+         // todo: must check we started at position...
          return mRegex.IsMatch(ctx.Expression, ctx.Position);
+      }
+
+      public override Terminal Clone()
+      {
+         return new GeneralTerminal(mExpression);
       }
 
       public override String AdvanceTerminal(ParseContext ctx)
@@ -1036,6 +1058,16 @@ namespace Parser
       public Boolean ContainsTerminal(Terminal pTerminal)
       {
          return Table.ContainsKey(pTerminal);
+      }
+
+      // todo: do this properly
+      public T GetMatchingTerminal(Terminal pTerminal)
+      {
+         //return Table.Keys.Any(k => k == pTerminal ||  ((GeneralTerminal)k).SemanticEquals(pTerminal));
+         var tResult = from k in Table.Keys where k == pTerminal || ((GeneralTerminal)k).SemanticEquals(pTerminal) select this[k];
+         if (tResult.Count() > 1)
+            throw new Exception("todo");
+         return tResult.FirstOrDefault();
       }
 
       public Boolean HasConflictingTerminal(Terminal pTerminal)

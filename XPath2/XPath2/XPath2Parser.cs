@@ -283,10 +283,10 @@ namespace XPath2.Parser
          tNCName = "NCNAME".Terminal();
 
          // todo:
-         tStringLiteral = "[a-z]".Terminal();
-         tIntegerLiteral = "_int".Terminal();
-         tDecimalLiteral = "_dec".Terminal();
-         tDoubleLiteral = "_double".Terminal();
+         tStringLiteral = "'[a-z]".Terminal();
+         tIntegerLiteral = "Int".Terminal();
+         tDecimalLiteral = "Dec".Terminal();
+         tDoubleLiteral = "E".Terminal();
 
 
          //ParseNode Expression = null, ExpressionSimple = null, ExprFoo = null, ExprBar = null, ExprBaz = null, ExprZab = null;

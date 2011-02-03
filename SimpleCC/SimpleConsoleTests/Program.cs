@@ -15,7 +15,7 @@ namespace SimpleConsoleTests
          return (line = Console.ReadLine()) != "\\q";
       }
 
-      static void Main33(String[] args)
+      static void Main333(String[] args)
       {
          // (a | b) b
 
@@ -96,6 +96,20 @@ namespace SimpleConsoleTests
 
       static void Main(string[] args)
       {
+         XPath2Parser tParser = null;
+         try
+         {
+            Console.Write("Generating parser...");
+            System.Diagnostics.Stopwatch tTimer = System.Diagnostics.Stopwatch.StartNew();
+            tParser = new XPath2Parser();
+            Console.WriteLine("OK in {0}ms", tTimer.ElapsedMilliseconds);
+         }
+         catch (Exception e)
+         {
+            Console.WriteLine("ERROR: " + e.Message);
+            return;
+         }
+
          for(;;)
          {
             Console.Write(">");
@@ -105,7 +119,6 @@ namespace SimpleConsoleTests
                if (tLine == "!")
                   return;
 
-               XPath2Parser tParser = new XPath2Parser();
                tParser.Parse(tLine);
                Console.WriteLine("OK");
             }

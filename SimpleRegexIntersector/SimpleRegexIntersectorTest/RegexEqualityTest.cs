@@ -93,6 +93,7 @@ namespace SimpleRegexIntersectorTest
          AssertHaveCommonPrefix("[a-z][b-p]obar", "foo");
          AssertHaveCommonPrefix("[a-z]oo", "fo");
          AssertHaveCommonPrefix("~a", "b");
+         AssertHaveCommonPrefix("ab", "ad"); // caused trouble
       }
    }
 }
