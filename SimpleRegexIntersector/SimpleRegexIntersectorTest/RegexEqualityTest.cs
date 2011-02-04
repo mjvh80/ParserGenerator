@@ -17,6 +17,9 @@ namespace SimpleRegexIntersectorTest
          SimpleRegex.Rewrite(ref tLeft, ref tRight);
          if (!tLeft.SemanticEquals(tRight))
             throw new Exception(String.Format("{0} is not equal to {1}: assertion failure", left, right));
+
+         if (tLeft.EqualsConsistentHashCode() != tRight.EqualsConsistentHashCode())
+            throw new Exception(String.Format("{0} hashcode not equals consistent with {1}", left, right));
       }
 
       private void AssertIntersects(String left, String right)
@@ -94,6 +97,16 @@ namespace SimpleRegexIntersectorTest
          AssertHaveCommonPrefix("[a-z]oo", "fo");
          AssertHaveCommonPrefix("~a", "b");
          AssertHaveCommonPrefix("ab", "ad"); // caused trouble
+      }
+
+      [TestMethod]
+      public void HashCodeTests()
+      {
+      //   Assert.AreEqual(SimpleRegex.Parse("a").EqualsConsistentHashCode(), SimpleRegex.Parse("a").EqualsConsistentHashCode());
+      //   Assert.AreEqual(SimpleRegex.Parse("a|b").EqualsConsistentHashCode(), SimpleRegex.Parse("b|a").EqualsConsistentHashCode());
+         Assert.AreEqual(SimpleRegex.Parse("aa*aa").EqualsConsistentHashCode(), SimpleRegex.Parse("aaa*a").EqualsConsistentHashCode());
+         Assert.AreEqual(SimpleRegex.Parse("a").EqualsConsistentHashCode(), SimpleRegex.Parse("a").EqualsConsistentHashCode());
+         Assert.AreEqual(SimpleRegex.Parse("a").EqualsConsistentHashCode(), SimpleRegex.Parse("a").EqualsConsistentHashCode());
       }
    }
 }

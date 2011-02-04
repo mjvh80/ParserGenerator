@@ -250,6 +250,7 @@ namespace SimpleRegexIntersector
       public SimpleRegex GetCommonPrefix(Dictionary<Pair, SimpleRegex> env, Int32 x, SimpleRegex r2)
       {
          // If any one is empty/zero, we should stop processing: we found our prefix.
+         // Return empty, so that the prefix found does not match zero.
          if (this == Zero || r2 == Zero)
             return Empty;
 
@@ -299,6 +300,8 @@ namespace SimpleRegexIntersector
          if (this.IsZero() && !r2.IsZero())
             return false;
 
+         // If we have seen this pair before, they must be equal.
+         // If not there is a point in the foreach where this is called, and false returned and so on.
          if (env.Contains(Pair(this, r2)))
             return true;
 
@@ -308,6 +311,41 @@ namespace SimpleRegexIntersector
             if (!Choice(this.PartialDeriv(tLetter)).SemanticEquals(env, Choice(r2.PartialDeriv(tLetter))))
                return false;
          return true;
+      }
+
+      public Int32 EqualsConsistentHashCode()
+      {
+         return EqualsConsistentHashCode(new Dictionary<SimpleRegex, Int32>(), 1);
+      }
+
+      // Every regex is:
+      // Sum(partial_derivs) | empty | zero
+      // Can we do better?
+      // this is shitty.. and maps too many hashcodes on one, must improve..
+      // todo: must seriously do better here
+      protected Int32 EqualsConsistentHashCode(Dictionary<SimpleRegex, Int32> env, Int32 cnt)
+      {
+         // No effect on hashocde
+         if (this.IsZero() || this == Empty)
+            return 0;
+
+         Char[] tLetters = Sigma(); 
+         
+         // todo: must we sort?
+         Array.Sort(tLetters);
+
+         if (env.ContainsKey(this))
+            return env[this];
+
+         Int32 tResult = cnt;
+         env[this] = 2; // don't care, pick this
+         foreach (Char tLetter in tLetters)
+         {
+            tResult ^= tLetter.GetHashCode();
+            tResult ^= Choice(PartialDeriv(tLetter)).EqualsConsistentHashCode(env, cnt);
+         }
+
+         return tResult;
       }
 
       public Boolean SemanticEquals(SimpleRegex other)
