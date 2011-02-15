@@ -27,6 +27,9 @@ using SimpleRegexIntersector;
 //       if 1 match: ok, got our lookahead -> parse
 //       if 0 matches: parse error
 
+// Known issues:
+// 1. / vs //.., / should accept an EOF terminal as lookahead, how to do with SimpleRegex?
+
 namespace Parser
 {
    public class ParseException : Exception
@@ -170,24 +173,41 @@ namespace Parser
                   foreach (Terminal tTerminal in action.DoGetDecisionTerminals(0))
                      tParseTable.AddTerminal(tTerminal, action); // todo: better error handling if key found
 
+                  Dictionary<Terminal, HashSet<ParseNode>> tConflictMap = new Dictionary<Terminal, HashSet<ParseNode>>();
+                  Action<Terminal, ParseNode> tAddConflict = (t, n) =>
+                  {
+                     HashSet<ParseNode> tList;
+                     if (!tConflictMap.TryGetValue(t, out tList))
+                     {
+                        tList = new HashSet<ParseNode>();
+                        tConflictMap.Add(t, tList);
+                     }
+
+                     tList.Add(n); // hashset?!
+                  };
+
                   foreach (ParseNode tOtherNode in otherActions)
                      foreach (Terminal tTerminal in tOtherNode.DoGetDecisionTerminals(0)) // todo: must do properly
                      {
                         if (tParseTable.ContainsTerminal(tTerminal))
-                           tParseTable.AddTerminal(tTerminal.Clone(), tOtherNode);
+                        {
+                           tAddConflict(tTerminal, tParseTable[tTerminal]);
+                           tAddConflict(tTerminal, tOtherNode);
+                        }
                         else
                            tParseTable.AddTerminal(tTerminal, tOtherNode);
                      }
 
-                  List<Terminal> tConflictingTerminals = new List<Parser.Terminal>();
                   foreach (Terminal tTerm in tParseTable.Terminals)
                      if (tParseTable.HasConflictingTerminal(tTerm))
-                        tConflictingTerminals.Add(tTerm);
+                     {
+                        tAddConflict(tTerm, tParseTable[tTerm]);                        
+                     }
 
-                  LookaheadParseNode tLookaheadNode = new LookaheadParseNode(tConflictingTerminals, tParseTable);
+                  LookaheadParseNode tLookaheadNode = new LookaheadParseNode(tConflictMap); // new LookaheadParseNode(tConflictingTerminals, tParseTable);
 
                   // Replace with lookahead node.
-                  foreach (Terminal tConflictingTerminal in tConflictingTerminals)
+                  foreach (Terminal tConflictingTerminal in tConflictMap.Keys)
                      tParseTable[tConflictingTerminal] = tLookaheadNode;
 
                   return true; // we are primed
@@ -346,20 +366,42 @@ namespace Parser
                   {
                      if (upperBound - requiredCount > 0)
                      {
+                        // todo: WTF we don't even need a parsetable here (just use capture to node)
+
+                        var tConflictMap = new Dictionary<Terminal, HashSet<ParseNode>>();
+                        Action<Terminal, ParseNode> tAddConflict = (t, n) =>
+                        {
+                           HashSet<ParseNode> tList;
+                           if (!tConflictMap.TryGetValue(t, out tList))
+                           {
+                              tList = new HashSet<ParseNode>();
+                              tConflictMap.Add(t, tList);
+                           }
+
+                           tList.Add(n); // hashset?!
+                        };
+
                         tParseTable = new ParseTable<ParseNode>();
                         foreach (Terminal tTerminal in node.DoGetDecisionTerminals(0))
-                           tParseTable.AddTerminal(tTerminal, node);
+                           if (tParseTable.ContainsTerminal(tTerminal))
+                           {
+                              tAddConflict(tTerminal, node);
+                              tAddConflict(tTerminal, tParseTable[tTerminal]);
+                           }
+                           else
+                              tParseTable.AddTerminal(tTerminal, node);
 
                         // Find conflicting terminals.
                         HashSet<Terminal> tConflictingTerminals = new HashSet<Terminal>();
                         foreach (Terminal tTerminal in tParseTable.Terminals)
                            if (tParseTable.HasConflictingTerminal(tTerminal))
-                              tConflictingTerminals.Add(tTerminal);
+                              tAddConflict(tTerminal, node);
+                             // tConflictingTerminals.Add(tTerminal);
 
-                        LookaheadParseNode tLookaheadNode = new LookaheadParseNode(tConflictingTerminals, tParseTable);
+                        LookaheadParseNode tLookaheadNode = new LookaheadParseNode(tConflictMap); // new LookaheadParseNode(tConflictingTerminals, tParseTable);
 
                         // Replace with lookahead node.
-                        foreach (Terminal tConflictingTerminal in tConflictingTerminals)
+                        foreach (Terminal tConflictingTerminal in tConflictMap.Keys) // tConflictingTerminals)
                            tParseTable[tConflictingTerminal] = tLookaheadNode;
                      }
                      return true;
@@ -603,8 +645,8 @@ namespace Parser
        * by looking at intersection groups, and determining which group to go for during parsing (say A&C) and then deciding
        * on the lookahead.
        * */
-      //public LookaheadParseNode(Terminal pTerminal, ParseNode left, ParseNode right)
-      public LookaheadParseNode(IEnumerable<Terminal> pConflictingTerminals, ParseTable<ParseNode> origParseTable)
+      //public LookaheadParseNode(IEnumerable<Terminal> pConflictingTerminals, ParseTable<ParseNode> origParseTable)
+      public LookaheadParseNode(Dictionary<Terminal, HashSet<ParseNode>> pConflictMap)
       {
          Label = "LOOKAHEAD";
          GetDecisionTerminals = (level) =>
@@ -612,41 +654,60 @@ namespace Parser
                throw new InvalidOperationException(); // todo: return terminalStr? I think it makes no sense to ask for dec. terminals here.
             };
 
-         // 1. Store a map to the original nodes.
-         ParseTable<ParseNode> tParseTable = new ParseTable<ParseNode>();
-         foreach (Terminal tTerminal in pConflictingTerminals)
-            tParseTable[tTerminal] = origParseTable[tTerminal];
-
-         // 2. Create a map from terminal to lookahead terminals.
-         Dictionary<Terminal, List<Terminal>> tLookaheadMap = new Dictionary<Terminal, List<Terminal>>();
-         
-         foreach (Terminal tTerminal in tParseTable.Terminals)
+         // For lookahead we need a map Terminal -> list of Pair(LookaheadTerminals, node)
+         // ie choose node if the lookahead terminal were to match after terminal
+         var tLookaheadMap = new Dictionary<GeneralTerminal, List<Pair<List<Terminal>, ParseNode>>>();
+         foreach (var tItem in pConflictMap)
          {
-            List<Terminal> tLookaheadTerminals = new List<Terminal>();
-            tParseTable[tTerminal].LookaheadTerminals(tTerminal, tLookaheadTerminals);
-            //if (tLookaheadTerminals.Count == 0)
-            //   throw new ParseException("no lookahead terminals");
-            tLookaheadMap.Add(tTerminal, tLookaheadTerminals);
+            foreach (ParseNode tNode in tItem.Value)
+            {
+               List<Terminal> tLookaheadTerminals = new List<Terminal>();
+               tNode.LookaheadTerminals(tItem.Key, tLookaheadTerminals); // get lookahead
+               if (tLookaheadTerminals.Count > 0)
+               {
+                  List<Pair<List<Terminal>, ParseNode>> tList;
+                  if (!tLookaheadMap.TryGetValue((GeneralTerminal)tItem.Key, out tList))
+                  {
+                     tList = new List<Pair<List<Terminal>, ParseNode>>();
+                     tLookaheadMap.Add((GeneralTerminal)tItem.Key, tList);
+                  }
+
+                  tList.Add(new Pair<List<Terminal>, ParseNode>() { Left = tLookaheadTerminals, Right = tNode });
+                  //tLookaheadMap.Add(tItem.Key, new Pair<List<Terminal>, ParseNode>() { Left = tLookaheadTerminals, Right = tNode });
+               }
+               else
+                  throw new Exception("no lookahead terminals");
+            }
          }
 
          // 3. Determine if our lookahead map is unique, every route is unique.
-         foreach (GeneralTerminal tTerminal in tLookaheadMap.Keys)
+         // probably quite intensive..
+         // todo: this checks everything twice, stupid...
+         foreach(var tEntry in tLookaheadMap)
          {
-            SimpleRegex tLeftRegex = SimpleRegex.And(tTerminal.SimpleRegex,
-               SimpleRegex.Choice(from t in tLookaheadMap[tTerminal] select ((GeneralTerminal)t).SimpleRegex));
+            foreach (var tPair in tEntry.Value)
+            {
+               SimpleRegex tLeftRegex = SimpleRegex.And(tEntry.Key.SimpleRegex,
+                  SimpleRegex.Choice(from t in tPair.Left select ((GeneralTerminal)t).SimpleRegex));
 
-            foreach (GeneralTerminal tOtherTerminal in tLookaheadMap.Keys)
-               if (tTerminal != tOtherTerminal) // todo: could be trouble if these were reused... must be aware
-               {
-                  SimpleRegex tRightRegex = SimpleRegex.And(tOtherTerminal.SimpleRegex,
-                     SimpleRegex.Choice(from t in tLookaheadMap[tOtherTerminal] select ((GeneralTerminal)t).SimpleRegex));
+               //foreach (GeneralTerminal tOtherTerminal in tLookaheadMap.Keys)
+               foreach(var tOtherEntry in tLookaheadMap)
+                  if (!Object.ReferenceEquals(tEntry, tOtherEntry)) // todo: could be trouble if these were reused... must be aware
+                  {
+                     foreach (var tOtherPair in tOtherEntry.Value)
+                     {
+                        SimpleRegex tRightRegex = SimpleRegex.And(tOtherEntry.Key.SimpleRegex,
+                           SimpleRegex.Choice(from t in tOtherPair.Left select ((GeneralTerminal)t).SimpleRegex));
 
-                  // (tLeftRegex.Intersects(tRightRegex))
-                  // todo: could consider a sort of global rewrite, but e must know our complete alphabet then.
-                  if (SimpleRegex.RewritesIntersect(tLeftRegex, tRightRegex))
-                     throw new ParseException("inconclusive lookahead");
-               }                               
+                        // (tLeftRegex.Intersects(tRightRegex))
+                        // todo: could consider a sort of global rewrite, but e must know our complete alphabet then.
+                        if (SimpleRegex.RewritesIntersect(tLeftRegex, tRightRegex))
+                           throw new ParseException("inconclusive lookahead");
+                     }
+                  }
+            }          
          }
+
         
          /*
          ParseTable<ParseNode> tParseTable = new ParseTable<ParseNode>();
@@ -664,13 +725,20 @@ namespace Parser
          // this was added SINCE I added lookahead logic...
          LookaheadTerminals = (s, l) =>
          {
-            if (tParseTable.ContainsTerminal(s))
-               return tParseTable[s].LookaheadTerminals(s, l);
-            return false;
+            // todo: correct?
+            Boolean tResult = true;
+            foreach (ParseNode tNode in pConflictMap[s])
+               tResult = tResult && tNode.LookaheadTerminals(s, l);
+            return tResult;
+            //if (tParseTable.ContainsTerminal(s))
+            //   return tParseTable[s].LookaheadTerminals(s, l);
+            //return false;
          };
 
          Parse = c =>
             {
+               // todo: every time we get here, we already know which terminal advanced, can we use this?
+
                Int32 tPosition = c.Position;
 
                foreach (GeneralTerminal tTerminal in tLookaheadMap.Keys)
@@ -680,17 +748,18 @@ namespace Parser
                      tTerminal.AdvanceTerminal(c); // takes care of interleaving
 
                      // Choose a lookahead terminal, and then proceed.
-                     foreach(GeneralTerminal tLookaheadTerminal in tLookaheadMap[tTerminal])
-                        if (tLookaheadTerminal.CanAdvance(c))
-                        {
-                           // don't need to advance: we got a hit
-                           //tLookaheadTerminal.AdvanceTerminal(c);
+                     foreach(var tPair in tLookaheadMap[tTerminal])
+                        foreach(GeneralTerminal tLookaheadTerminal in tPair.Left)
+                           if (tLookaheadTerminal.CanAdvance(c))
+                           {
+                              // don't need to advance: we got a hit
+                              //tLookaheadTerminal.AdvanceTerminal(c);
 
-                           // NOW we're in business.
-                           c.Position = tPosition; // reset for actual parsing (todo: this is a shame)
-                           tParseTable[tTerminal].Parse(c);
-                           return; // gtfo
-                        }
+                              // NOW we're in business.
+                              c.Position = tPosition; // reset for actual parsing (todo: this is a shame)
+                              tPair.Right.Parse(c);
+                              return; // gtfo
+                           }
 
                      // Failure, reset position, try next terminal.
                      c.Position = tPosition;
@@ -847,6 +916,17 @@ namespace Parser
             return true;
 
          return false;
+      }
+
+      public override bool Equals(object obj)
+      {
+         return SemanticEquals(obj); // todo: if this ok, can remove of course
+      }
+
+      public override int GetHashCode()
+      {
+        // return this.mSimpleRegex.EqualsConsistentHashCode(); // todo: may wish to try 
+         return 42; // todo: use above, but make sure that bugs in the above are avoided first
       }
    }
 

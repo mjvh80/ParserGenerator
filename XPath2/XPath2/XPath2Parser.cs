@@ -137,12 +137,12 @@ namespace XPath2.Parser
          //tForExpr = Rule(() => tSimpleForClause.FollowedBy("return".FollowedBy(tExprSingle)));
          tForExpr = Rule(() => tSimpleForClause.FollowedBy("return", tExprSingle));
 
-         tSimpleForClause = Rule(() => "for".FollowedBy("$", tVarName, "in", tExprSingle, (
-               ",".FollowedBy("$", tVarName, "in", tExprSingle).ZeroOrMore()
+         tSimpleForClause = Rule(() => "for".FollowedBy("\\$", tVarName, "in", tExprSingle, (
+               ",".FollowedBy("\\$", tVarName, "in", tExprSingle).ZeroOrMore()
             )));
 
-         tQuantifiedExpr = Rule(() => ("some".Or("every")).FollowedBy("$", tVarName, "in", tExprSingle,
-                ",".FollowedBy("$", tVarName, "in", tExprSingle).ZeroOrMore(),
+         tQuantifiedExpr = Rule(() => ("some".Or("every")).FollowedBy("\\$", tVarName, "in", tExprSingle,
+                ",".FollowedBy("\\$", tVarName, "in", tExprSingle).ZeroOrMore(),
                 "satisfies", tExprSingle)
              );
 
@@ -215,7 +215,8 @@ namespace XPath2.Parser
 
          tNumericLiteral = Rule(() => tIntegerLiteral.Or(tDecimalLiteral, tDoubleLiteral));
 
-         tVarRef = Rule(() => "$".FollowedBy(tVarName));
+         // todo :escaping, escaping, escaping: $ for .NET!
+         tVarRef = Rule(() => @"\$".FollowedBy(tVarName));
 
          tParenthesizedExpr = Rule(() => @"\(".FollowedBy(tExpr.Optional()).FollowedBy(@"\)"));
 

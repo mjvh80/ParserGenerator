@@ -15,7 +15,7 @@ namespace SimpleConsoleTests
          return (line = Console.ReadLine()) != "\\q";
       }
 
-      static void Main(String[] args)
+      static void Main3(String[] args)
       {
          // (a | b) b
 
@@ -94,7 +94,7 @@ namespace SimpleConsoleTests
       static void Two(ref Foo foo) { foo.Bar = 2; }
       static void Two(List<Foo> list) { list[0].Bar = 2; }
 
-      static void Main3(string[] args)
+      static void Main(string[] args)
       {
          XPath2Parser tParser = null;
          try
