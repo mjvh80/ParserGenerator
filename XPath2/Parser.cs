@@ -109,7 +109,17 @@ namespace Parser
                //else
                //   c.Position += 1; // skip char -> todo: move to context, make method etc.
             },
-            ParsesTerminal = s => ((GeneralTerminal)s).SemanticEquals(tTerminal) // s.Equals(tTerminal)
+            ParsesTerminal = s => ((GeneralTerminal)s).SemanticEquals(tTerminal), // s.Equals(tTerminal),
+
+            //// todo: can we now get rid of "parsesterminal" above?
+            //LookaheadTerminals = (s, l) => {
+            //   if (((GeneralTerminal)s).SemanticEquals(tTerminal))
+            //   {
+            //      l.Add(tTerminal);
+            //      return true; // exhausted
+            //   }
+            //   return false;
+            //}
          };
       }
 
@@ -152,6 +162,9 @@ namespace Parser
          
          return new ParseNode()
          {
+            DEBUG = "ORNODE",
+            ParsesTerminal = s => tParseTable.ContainsTerminal(s) && tParseTable[s].DoParsesTerminal(s),
+
             Primer = (s) =>
                {
                   Boolean tAllPrimed = true;
@@ -256,7 +269,7 @@ namespace Parser
                return false;
 
             } , // follow path to where we want lookahead terminals from
-            //ParsesTerminal = s => tParseTable.ContainsKey(s) && tParseTable[s].ParsesTerminal(s),
+
             Label = "OR(" + action.Label + OrLabels(otherActions) + ")",
             Optional = action.Optional || otherActions.Any(n => n.Optional),
          };
@@ -301,18 +314,26 @@ namespace Parser
                otherNode.Parse(c);
             },
 
+            // Given a terminal s, must determine a lookahead in A B.
+            // If s in A (exclusive) then lookahead in B.
+            // Else, if A optional then lookahead in B.
+            // Else: no lookahead here.
             LookaheadTerminals = (s, termList) =>
             {
-               if (node.ParsesTerminal(s))
+               if (node.DoParsesTerminal(s))
                {
+                  // current terminal matches, so lookahead is found in othernode
                   termList.AddRange(otherNode.DoGetDecisionTerminals(0));
                   return !otherNode.Optional; // if optional, we may not be done
                }
+               // Else: lookahead found in node, if optional should continue looking in otherNode.
                else if (node.LookaheadTerminals(s, termList) && !node.Optional)
                   return true; // exhausted
                else
                   return otherNode.LookaheadTerminals(s, termList) && !otherNode.Optional;
             },
+
+            ParsesTerminal = s => false,
 
             //ParsesTerminal = s => node.ParsesTerminal(s) || (node.Optional && otherNode.ParsesTerminal(s)),
 
@@ -442,6 +463,9 @@ namespace Parser
                else
                   return false;
             },
+
+            ParsesTerminal = s => node.DoParsesTerminal(s),
+
             Label = "OPTIONAL(" + node.Label + ")",
             Optional = requiredCount == 0
          };
@@ -578,6 +602,8 @@ namespace Parser
 
    public class ParseNode
    {
+      public String DEBUG;
+
       public String Label; // used for debugging only todo: can use a class type for each type of node (?)
 
       public Boolean Optional = false;
@@ -586,7 +612,12 @@ namespace Parser
 
       //public String FindLookaheadTerminal(String terminal) = s => null;
       public Func<Terminal, List<Terminal>, Boolean> LookaheadTerminals = (s, l) => true; // return true if route is exhausted, false otherwise
-      public Func<Terminal, Boolean> ParsesTerminal = s => false; // todo: can't we do better?
+      public Func<Terminal, Boolean> ParsesTerminal;
+
+      public ParseNode()
+      {
+         
+      }
 
       public Func<Stack<ParseNode>, Boolean> Primer;
 
@@ -629,6 +660,15 @@ namespace Parser
             default:
                return GetDecisionTerminals(pLevel);
          }
+      }
+
+      // again: lambdas don't appear to caputer field references...
+      public Boolean DoParsesTerminal(Terminal s)
+      {
+         if (Mode != PrimeMode.Primed)
+            throw new InvalidOperationException();
+
+         return ParsesTerminal(s);
       }
 
       public Boolean IsPriming() { return Mode == PrimeMode.Priming; }
@@ -692,7 +732,7 @@ namespace Parser
 
                //foreach (GeneralTerminal tOtherTerminal in tLookaheadMap.Keys)
                foreach(var tOtherEntry in tLookaheadMap)
-                  if (!Object.ReferenceEquals(tEntry, tOtherEntry)) // todo: could be trouble if these were reused... must be aware
+                  if (tEntry.Key != tOtherEntry.Key) // todo: could be trouble if these were reused... must be aware
                   {
                      foreach (var tOtherPair in tOtherEntry.Value)
                      {
