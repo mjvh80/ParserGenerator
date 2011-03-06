@@ -271,10 +271,10 @@ namespace XPath2.Parser
          tTypeName = Rule(() => tQName);
 
          // todo: more work
-         tVarName = new ParseNode() {
+         tVarName = new SimpleParseNode() {
             Label = "VARNAME",
-            GetDecisionTerminals = (level) => { return new Terminal[] { new GeneralTerminal("VARNAME") }; },
-            Parse = c => { c.Advance(); } // todo: this is incorrec,t but for testing...
+            GetDecisionTerminalsDelegate = () => { return new Terminal[] { new GeneralTerminal("VARNAME") }; },
+            ParseDelegate = c => { c.Advance(); } // todo: this is incorrec,t but for testing...
          };
 
          // todo: of coures, this is wrong
