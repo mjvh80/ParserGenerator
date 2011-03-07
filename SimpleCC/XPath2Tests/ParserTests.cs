@@ -3,25 +3,62 @@ using System.Text;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-//using XPath2;
+using XPath2.Parser;
 
 namespace XPath2Tests
 {
    [TestClass]
    public class ParserTests
    {
-      [TestMethod]
-      public void TestMethod1()
+      XPath2Parser mParser;
+
+      [TestInitialize]
+      public void Init()
       {
-         //Parser tParser = new Parser();
+         mParser = new XPath2Parser();
+      }
 
-         //Assert.IsTrue(tParser.Parse("foo"));
-         //Assert.IsFalse(tParser.Parse("bar"));
-
-         //Assert.IsTrue(tParser.Parse("if (foo  ) then foo else foo"));
-         //Assert.IsTrue(tParser.Parse("for $foo in foo return foo"));
-
-         //Assert.IsTrue(tParser.Parse("if then bar"));
+      [TestMethod]
+      public void GoodXPathsTest()
+      {
+         // Simple parse, expecting no exceptions.
+         foreach (String tXPath in new List<String>()
+         {
+            "/",
+            "//*",
+			   "//QNAME",
+			   "/*",
+			   "/QNAME",
+            "QNAME",
+            "/QNAME",
+			   "/QNAME/QNAME",
+			   "/QNAME//QNAME",
+			   "/*//*",
+			   "$VARNAME",
+			   "($VARNAME)",
+			   "(QNAME)",
+			   ".",
+			   "(.)",
+			   "QNAME()",
+			   "QNAME(QNAME)",
+			   "QNAME(QNAME, QNAME)",
+			   "QNAME(QNAME,$VARNAME)",
+			   "QNAME ( QNAME , $VARNAME  )  ",
+			   "   QNAME   ",
+			   "   .   ",
+			   "node()", "node(  )", "node ( ) ",
+			   "text()", " text ()", " text (  )",
+			   "comment()", "processing-instruction()",
+			   "attribute(QNAME)",
+			   "element(QNAME)",
+			   "schema-attribute(QNAME)",
+			   "schema-element(QNAME)",
+			   "element(*)",
+			   "attribute(*)",
+			   "element(QNAME, QNAME?)", "element(QNAME, QNAME)", "element(*,QNAME?)",
+			   "attribute(QNAME, QNAME?)", "attribute(*,QNAME)",
+         })
+            mParser.Parse(tXPath);
       }
    }
 }
