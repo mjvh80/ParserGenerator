@@ -1641,11 +1641,20 @@ namespace Parser
 
          // Prime.
          Stack<ParseNode> tPrimeStack = new Stack<ParseNode>();
+
+#if true
          tPrimeStack.Push(Root);
          while (tPrimeStack.Count > 0)
          {
             tPrimeStack.Pop().Prime(tPrimeStack);
          }
+#else
+         // todo: we *want* this, why does it not always work?
+         // > this won't work because of the way a follow node is primed, it may be marked as primed but not fully primed internally (ie if the first node is not optional,
+         // we don't need the second node primed.
+         while (!Root.IsPrimed())
+            Root.Prime(tPrimeStack); // todo: remove stack
+#endif
 
          return this;
       }

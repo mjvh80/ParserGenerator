@@ -4,18 +4,19 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using XPath2.Parser;
+using Parser;
 
 namespace XPath2Tests
 {
    [TestClass]
    public class XPathParserTests
    {
-      XPath2Parser mParser;
+      ParserBase mParser;
 
       [TestInitialize]
       public void Init()
       {
-         mParser = new XPath2Parser();
+         mParser = new XPath2Parser().Build();
       }
 
       [TestMethod]
@@ -56,7 +57,7 @@ namespace XPath2Tests
 			   "element(*)",
 			   "attribute(*)",
 			   "element(QNAME, QNAME?)", "element(QNAME, QNAME)", "element(*,QNAME?)",
-			   "attribute(QNAME, QNAME?)", "attribute(*,QNAME)",
+			   "attribute(QNAME, QNAME)", "attribute(*,QNAME)",
 			   "for $VARNAME in QNAME return ( for $VARNAME in QNAME return *)",
 			   "for $VARNAME in QNAME return .",
 			   "for $VARNAME in QNAME return QNAME",
