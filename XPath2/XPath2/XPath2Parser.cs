@@ -82,31 +82,17 @@ namespace XPath2.Parser
    }
 
    // todo: move common stuff into a base class
-   public class XPath2Parser
+   public class XPath2Parser : ParserBase
    {
-      ParseNode Root;
+      public XPath2Parser() : base() { }
 
-      public XPath2Parser()
+      protected override ParseContext GetContext()
       {
-         List<SymbolNode> tPrimeTargets = new List<SymbolNode>();
+         return new XPathParseContext();
+      }
 
-         //Func<Func<ParseNode>, ParseNode> Rule = f =>
-         //   {
-         //      SymbolNode tNode = new SymbolNode()
-         //      {
-         //         Primer = f
-         //      };
-         //      tPrimeTargets.Add(tNode);
-         //      return tNode;
-         //   };
-
-         Func<Func<ParseNode>, ParseNode> Rule = f =>
-         {
-            SymbolNode tNode = new SymbolNode(f);
-            tPrimeTargets.Add(tNode);
-            return tNode;
-         };
-
+      protected override void DefineGrammar()
+      {
          // Define grammar symbols:
          ParseNode tExpr = null, tExprSingle = null, tForExpr = null, tQuantifiedExpr = null,
             tIfExpr = null, tOrExpr = null, tSimpleForClause = null, tVarName = null, tAndExpr = null, tComparisonExpr = null,
@@ -292,34 +278,6 @@ namespace XPath2.Parser
          tDecimalLiteral = "Dec".Terminal();
          tDoubleLiteral = "E".Terminal();
 
-
-         //ParseNode Expression = null, ExpressionSimple = null, ExprFoo = null, ExprBar = null, ExprBaz = null, ExprZab = null;
-
-         //Expression = Rule(() => ExpressionSimple.FollowedBy(",".FollowedBy(ExpressionSimple).Optional()));
-         //ExpressionSimple = Rule(() => ExprFoo.Or(ExprBar));
-         //ExprFoo = Rule(() => "foo".Terminal());
-         //ExprBar = Rule(() => ExprBaz.Or(ExprZab));
-         //ExprBaz = Rule(() => "baz".Terminal());
-         //ExprZab = Rule(() => "zab".Terminal());
-
-
-         // Prime.
-        // ((SymbolNode)Root).Prime();
-         Stack<ParseNode> tPrimeStack = new Stack<ParseNode>();
-         tPrimeStack.Push(Root);
-         while (tPrimeStack.Count > 0)
-         {
-            
-            tPrimeStack.Pop().Prime(tPrimeStack);
-         }
-      }
-
-      public void Parse(String expr)
-      {
-         Root.Parse(new XPathParseContext()
-         {
-            Expression = expr
-         });
       }
    }
 }

@@ -510,24 +510,20 @@ namespace Parser
 
       protected override bool PrimeInternal(Stack<ParseNode> s)
       {
-         //return node.Prime(s) &&
-         //otherNode.Prime(s);
-
          Boolean tNodePrimed = node.Prime(s);
-
-         //if (!tFoo)
-         //   return false; // todo: should we do this after priming otherNode?
 
          Boolean tOtherNodePrimed = otherNode.Prime(s);
 
          Label = "FOLLOW(" + node.Label + ", " + otherNode.Label + ")"; // if othernode not primed, label is not complete...
 
-         if (!tNodePrimed)
+         if (!tNodePrimed) // if it's not primed we can't say if it's optional
             return false;
          else if (node.Optional)
             return tNodePrimed && tOtherNodePrimed;
          else
-            return tNodePrimed; // result for othernode is irrelevant (ie may queue itself, but not needed here)
+         {
+            return true; // result for othernode is irrelevant (ie may queue itself, but not needed here)
+         }
       }
 
       public override Terminal[] GetDecisionTerminals()
@@ -542,6 +538,8 @@ namespace Parser
          Debug.Assert(Mode == PrimeMode.Primed);
 
          // A B parses A only if B is optional. If A is optional, then we test B.
+         // note: must check otherNode.Optional *second* as it may not be primed in some situations (in which 
+         // first should fail.. todo: this should be an exception).
          return (node.ParsesTerminal(pTerminal) && otherNode.Optional) || (node.Optional && otherNode.ParsesTerminal(pTerminal));
       }
 
@@ -1053,7 +1051,14 @@ namespace Parser
 
       protected override bool PrimeInternal(Stack<ParseNode> s)
       {
-         mNode = mNodeGenerator();
+         // prevents things like : A -> B and B -> A
+         // todo: it would be MUCH nicer if we could say which rule etc. Could we do this? Reflection (horrible?)?
+         if (mNode != null && !(mNode.IsPriming() || mNode.IsPrimed()))
+            throw new ParseException("circular grammar: symbol node depends on a node that could not be primed");
+
+         if (mNode == null)
+            mNode = mNodeGenerator();
+
          Boolean tResult = mNode.Prime(s);
 
          Label = mNode.Label;
@@ -1061,13 +1066,6 @@ namespace Parser
          // Optional = mNode.Optional; // todo: make lambda?
 
          return tResult;
-
-         //this.Primer = mNode.Primer;
-         //this.GetDecisionTerminals = mNode.GetDecisionTerminals;
-         //this.Parse = mNode.Parse;
-         //this.Label = mNode.Label;
-         //this.LookaheadTerminals = mNode.LookaheadTerminals;
-         //this.Optional = mNode.Optional;
       }
 
       public override bool Optional
@@ -1607,6 +1605,61 @@ namespace Parser
 #endif
    }
 
+   public abstract class ParserBase
+   {
+      private List<SymbolNode> _mPrimeTargets = new List<SymbolNode>();
+
+      protected ParseNode Root;
+
+      protected ParserBase()
+      {
+         DefineGrammar();
+      }
+
+      protected ParseNode Rule(Func<ParseNode> definition)
+      {
+         SymbolNode tNode = new SymbolNode(definition);
+         _mPrimeTargets.Add(tNode);
+         return tNode;
+      }
+
+      protected abstract void DefineGrammar();
+
+      protected abstract ParseContext GetContext();
+
+      //Func<Func<ParseNode>, ParseNode> Rule = f =>
+      //{
+      //   SymbolNode tNode = new SymbolNode(f);
+      //   _mPrimeTargets.Add(tNode);
+      //   return tNode;
+      //};
+
+      public ParserBase Build()
+      {
+         if (Root == null)
+            throw new Exception("no root defined");
+
+         // Prime.
+         Stack<ParseNode> tPrimeStack = new Stack<ParseNode>();
+         tPrimeStack.Push(Root);
+         while (tPrimeStack.Count > 0)
+         {
+            tPrimeStack.Pop().Prime(tPrimeStack);
+         }
+
+         return this;
+      }
+
+      // todo: this has gotta return something, ehm
+      public void Parse(String expression)
+      {
+         ParseContext tContext = GetContext();
+         tContext.Expression = expression; // todo: should pass to ctor i think
+
+         // todo: should return later
+         Root.Parse(tContext);
+      }
+   }
   
 
    

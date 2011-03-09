@@ -96,17 +96,18 @@ namespace SimpleConsoleTests
 
       static void Main(string[] args)
       {
-         XPath2Parser tParser = null;
+         ParserBase tParser = null;
          try
          {
             Console.Write("Generating parser...");
             System.Diagnostics.Stopwatch tTimer = System.Diagnostics.Stopwatch.StartNew();
-            tParser = new XPath2Parser();
+            tParser = new XPath2Parser().Build();
             Console.WriteLine("OK in {0}ms", tTimer.ElapsedMilliseconds);
          }
          catch (Exception e)
          {
             Console.WriteLine("ERROR: " + e.Message);
+            Console.Read();
             return;
          }
 
