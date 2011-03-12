@@ -27,6 +27,7 @@ using System.Diagnostics;
 //       if >= 2 match < invalid operation, should have been detected by not allowing an intersection
 //       if 1 match: ok, got our lookahead -> parse
 //       if 0 matches: parse error
+// 4. Create a BNF parser written in our C# parser that can read and generate a parser based on a BNF input file.
 
 // Known issues:
 // 1. / vs //.., / should accept an EOF terminal as lookahead, how to do with SimpleRegex?
@@ -92,6 +93,11 @@ namespace Parser
       public static ParseNode Or(this String terminalStr, String otherTerminal)
       {
          return Or(terminalStr.Terminal(), otherTerminal.Terminal());
+      }
+
+      public static ParseNode Or(this String terminalStr, ParseNode otherTerminal)
+      {
+         return Or(terminalStr.Terminal(), otherTerminal);
       }
 
       public static ParseNode Or(this ParseNode node, String terminalStr)
@@ -186,9 +192,19 @@ namespace Parser
          return ParseN(node, 0, Int32.MaxValue);
       }
 
+      public static ParseNode ZeroOrMore(this String terminalStr)
+      {
+         return ZeroOrMore(terminalStr.Terminal());
+      }
+
       public static ParseNode OneOrMore(this ParseNode node)
       {
          return ParseN(node, 1, Int32.MaxValue);
+      }
+
+      public static ParseNode OneOrMore(this String terminalStr)
+      {
+         return OneOrMore(terminalStr.Terminal());
       }
    }
 
@@ -331,6 +347,7 @@ namespace Parser
       }
    }
 
+   // value => choice made
    public class OptionalParseNode : ParseNode
    {
       protected ParseNode node;
@@ -369,7 +386,7 @@ namespace Parser
                };
 
                mParseTable = new ParseTable<ParseNode>();
-               foreach (Terminal tTerminal in node.DoGetDecisionTerminals(0))
+               foreach (Terminal tTerminal in node.DoGetDecisionTerminals())
                   if (mParseTable.ContainsTerminal(tTerminal))
                   {
                      tAddConflict(tTerminal, node);
@@ -514,7 +531,8 @@ namespace Parser
 
          Boolean tOtherNodePrimed = otherNode.Prime(s);
 
-         Label = "FOLLOW(" + node.Label + ", " + otherNode.Label + ")"; // if othernode not primed, label is not complete...
+         if (tNodePrimed && tOtherNodePrimed)
+            Label = "FOLLOW(" + node.Label + ", " + otherNode.Label + ")";
 
          if (!tNodePrimed) // if it's not primed we can't say if it's optional
             return false;
@@ -530,7 +548,7 @@ namespace Parser
       {
          Debug.Assert(Mode == PrimeMode.Primed);
 
-         return node.Optional ? node.DoGetDecisionTerminals(0).Merge(otherNode.DoGetDecisionTerminals(0)) : node.DoGetDecisionTerminals(0);
+         return node.Optional ? node.DoGetDecisionTerminals().Merge(otherNode.DoGetDecisionTerminals()) : node.DoGetDecisionTerminals();
       }
 
       public override bool ParsesTerminal(Terminal pTerminal)
@@ -563,7 +581,7 @@ namespace Parser
          if (node.ParsesTerminal(s))
          {
             // current terminal matches, so lookahead is found in othernode
-            foreach (Terminal tOtherTerminal in otherNode.DoGetDecisionTerminals(0))
+            foreach (Terminal tOtherTerminal in otherNode.DoGetDecisionTerminals())
                termList.Add(tOtherTerminal);
 
             if (otherNode.Optional)
@@ -587,6 +605,7 @@ namespace Parser
       }
    }
 
+   // value => choice made out of options
    public class OrParseNode : ParseNode
    {
       protected ParseTable<ParseNode> mParseTable;
@@ -612,6 +631,8 @@ namespace Parser
          if (!tAllPrimed)
             return false;
 
+         Debug.Assert(!IsPrimed(), "or node already primed");
+
          this.Label = "OR(" + action.Label + ", " + OrLabels(otherActions) + ")";
 
          // With all nodes primed, build parse table.
@@ -620,7 +641,7 @@ namespace Parser
 
 
          // todo: should we check if terminals of one node can conflict?
-         foreach (Terminal tTerminal in action.DoGetDecisionTerminals(0))
+         foreach (Terminal tTerminal in action.DoGetDecisionTerminals())
             mParseTable.AddTerminal(tTerminal, action); // todo: better error handling if key found
 
          Dictionary<Terminal, HashSet<ParseNode>> tConflictMap = new Dictionary<Terminal, HashSet<ParseNode>>();
@@ -637,7 +658,7 @@ namespace Parser
          };
 
          foreach (ParseNode tOtherNode in otherActions)
-            foreach (Terminal tTerminal in tOtherNode.DoGetDecisionTerminals(0)) // todo: must do properly
+            foreach (Terminal tTerminal in tOtherNode.DoGetDecisionTerminals()) // todo: must do properly
             {
                if (mParseTable.ContainsTerminal(tTerminal))
                {
@@ -806,7 +827,7 @@ namespace Parser
          return Mode == PrimeMode.Primed;
       }
 
-      public Terminal[] DoGetDecisionTerminals(Int32 pLevel) // todo: rename this and lambda
+      public Terminal[] DoGetDecisionTerminals() // todo: rename?
       {
          switch (Mode)
          {
@@ -891,8 +912,20 @@ namespace Parser
          // probably quite intensive..
          List<GeneralTerminal> tDefaultTerminals = new List<GeneralTerminal>();
 
+         Int32 tCount = 0;
          foreach(var tEntry in mLookaheadMap)
          {
+            tCount += 1;
+
+            // Check that the routes for this terminal are unique..
+            SimpleRegex tFirstRegex = null;
+            foreach(var tPair in tEntry.Value)
+               foreach (GeneralTerminal tTerminal in tPair.Left.Where(t => !(t is DefaultTerminal)))
+                  if (tFirstRegex == null)
+                     tFirstRegex = tTerminal.SimpleRegex;
+                  else if (SimpleRegex.RewritesIntersect(tFirstRegex, tTerminal.SimpleRegex))
+                     throw new ParseException("inconclusive lookahead (a)");
+
             foreach (var tPair in tEntry.Value)
             {
                // Check if the list contains a default entry.
@@ -912,17 +945,8 @@ namespace Parser
                SimpleRegex tLeftRegex = SimpleRegex.Sequence(tEntry.Key.SimpleRegex,
                   SimpleRegex.Choice(from t in tPair.Left where !(t is DefaultTerminal) select ((GeneralTerminal)t).SimpleRegex));
 
-               //foreach (GeneralTerminal tOtherTerminal in tLookaheadMap.Keys)
-               Boolean tSeenEntry = false;
-               foreach (var tOtherEntry in mLookaheadMap)
+               foreach (var tOtherEntry in mLookaheadMap.Skip(tCount)) // start past entry
                {
-                  if (!tSeenEntry)
-                  {
-                     if (Object.ReferenceEquals(tEntry, tOtherEntry))
-                        tSeenEntry = true;
-                     continue;
-                  }
-
                   foreach (var tOtherPair in tOtherEntry.Value)
                   {
                      SimpleRegex tRightRegex = SimpleRegex.Sequence(tOtherEntry.Key.SimpleRegex,

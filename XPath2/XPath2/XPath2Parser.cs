@@ -177,9 +177,9 @@ namespace XPath2.Parser
 
          tAbbrevForwardStep = Rule(() => "@".Optional().FollowedBy(tNodeTest));
 
-         tAbbrevReverseStep = @"\.\.".Terminal();
+         tAbbrevReverseStep = @"\.\.".Terminal(); // > ..
 
-         tNodeTest = Rule(() => tKindTest.Or(tNameTest));
+         tNodeTest = Rule(() => tKindTest.Or(tNameTest)); // > one of these
 
          tNameTest = Rule(() => tQName.Or(tWildCard));
 
