@@ -1372,7 +1372,7 @@ namespace Parser
          // Prime.
          Stack<ParseNode> tPrimeStack = new Stack<ParseNode>();
 
-#if true
+#if false
          tPrimeStack.Push(Root);
          while (tPrimeStack.Count > 0)
          {
