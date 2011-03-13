@@ -342,6 +342,24 @@ namespace Parser
          mParseTable = new ParseTable<ParseNode>();
       }
 
+      internal override bool DerivesTo(ParseNode pNode)
+      {
+         Debug.Assert(IsPrimed());
+
+         if (pNode == this)
+            return true;
+
+         if (!this.Optional)
+            return node.DerivesTo(pNode);
+         
+         return false;
+      }
+
+      internal override void VerifyTree()
+      {
+         node.VerifyTree();
+      }
+
       protected override bool PrimeInternal(Stack<ParseNode> s)
       {
          if (node == null)
@@ -512,6 +530,38 @@ namespace Parser
          this.otherNode = otherNode;
       }
 
+      internal override bool DerivesTo(ParseNode pNode)
+      {
+         if (pNode == this)
+            return true;
+         // todo: asserts
+         if (!node.Optional)
+            return node.DerivesTo(pNode);
+         if (!otherNode.IsPrimed() || otherNode.Optional) // todo..
+            return false; // both optional
+
+         return otherNode.DerivesTo(pNode);
+      }
+
+      internal override void VerifyTree()
+      {
+         Debug.Assert(IsPrimed());
+
+         if (mNodeVerified)
+            return;
+
+         mNodeVerified = true;
+
+         if (node.DerivesTo(this))
+            throw new ParseException("derives to self");
+
+         if (otherNode.DerivesTo(this))
+            throw new ParseException("derives to self");
+
+         node.VerifyTree();
+         otherNode.VerifyTree();
+      }
+
       protected override bool PrimeInternal(Stack<ParseNode> s)
       {
          if (node == null || otherNode == null)
@@ -524,7 +574,7 @@ namespace Parser
          // In this case we need the other node for decision terminals, thus we could not proceed.
          if (tNodePrimed && node.Optional && !tOtherNodePrimed)
             return false;
-
+ 
          // Return true only if the other node is primed, or is priming. If it would not be priming, it may never get primed, so don't proceed in that case.
          return tNodePrimed && (tOtherNodePrimed || otherNode.IsPriming());
       }
@@ -645,6 +695,39 @@ namespace Parser
          mParseTable = new ParseTable<ParseNode>();
          this.action = action;
          this.otherActions = otherActions;
+      }
+
+      internal override bool DerivesTo(ParseNode pNode)
+      {
+         Debug.Assert(this.IsPrimed());
+
+         if (pNode == this)
+            return true;
+
+         Boolean tAllDerive = !action.Optional && action.DerivesTo(pNode);
+         foreach (ParseNode tOtherNode in otherActions)
+            if (tAllDerive)
+               tAllDerive = !tOtherNode.Optional && tOtherNode.DerivesTo(pNode);
+            else
+               break;
+
+         return tAllDerive;
+      }
+
+      internal override void VerifyTree()
+      {
+         if (mNodeVerified)
+            return;
+
+         mNodeVerified = true; // prevent reentry before we're done
+
+         // all derive exclusively to this
+         if (action.DerivesTo(this) && otherActions.All(n => n.DerivesTo(this)))
+            throw new ParseException("node derives exclusively to self"); // todo: msg
+
+         action.VerifyTree();
+         foreach (ParseNode tOtherNode in otherActions)
+            tOtherNode.VerifyTree();
       }
 
       protected override bool PrimeInternal(Stack<ParseNode> s)
@@ -820,6 +903,25 @@ namespace Parser
       protected virtual Boolean PrimeInternal(Stack<ParseNode> pNodeStack)
       {
          return true; // default primer
+      }
+
+      // Return true if we ended up where we started, exclusively.
+      // If other paths are possible, this should return false.
+      internal virtual Boolean DerivesTo(ParseNode pNode)
+      {
+         if (pNode == this)
+            return true;
+
+         return false;
+      }
+
+      protected Boolean mNodeVerified = false;
+
+      // Method for running post priming verification of the tree.
+      // Currently used to detect an infinite parser.
+      internal virtual void VerifyTree()
+      {
+         mNodeVerified = true;
       }
       
       internal enum PrimeMode { None = 0, Priming, Primed };
@@ -1064,6 +1166,16 @@ namespace Parser
 
          Label = "SYMBOL"; // todo?
 
+      }
+
+      internal override bool DerivesTo(ParseNode pNode)
+      {
+         return this == pNode || mNode.DerivesTo(pNode);
+      }
+
+      internal override void  VerifyTree()
+      {
+         mNode.VerifyTree();
       }
 
       protected override bool PrimeInternal(Stack<ParseNode> s)
@@ -1385,6 +1497,9 @@ namespace Parser
          while (!Root.IsPrimed())
             Root.Prime(tPrimeStack); // todo: remove stack
 #endif
+
+         // Second walk.
+         Root.VerifyTree();
 
          // Verify all nodes were primed, if one was not, it's not reachable from the Root.
          // todo: note this won't catch things like "a".Terminal as it won't pass through Rule, maybe finda  good way to tackle that?

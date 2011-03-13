@@ -56,6 +56,8 @@ namespace XPath2Tests
    internal class LL1ProblemGrammar2 : TestParser
    {
       // tests derivability to terminals, problematic grammar from coco docs
+      // todo: i think ill need to introduce a check for this into the code
+      // each parsenode checks its derivability. This has to be a second run I think.
       protected override void DefineGrammar()
       {
          ParseNode X = null, Y = null;
@@ -64,6 +66,17 @@ namespace XPath2Tests
          Y = Rule(() => "\\(".FollowedBy(X, "\\)"));
          //X = Y ';'. 
          //Y = '(' X ')'
+      }
+   }
+
+   internal class LL1ProblemGrammar3 : TestParser
+   {
+      protected override void DefineGrammar()
+      {
+         ParseNode A = null, B = null;
+         Root = Rule(() => A.Or(B).EOF());
+         A = "a".FollowedBy("b").FollowedBy("c");
+         B = "a".FollowedBy("b").FollowedBy("d");
       }
    }
 
@@ -160,16 +173,8 @@ namespace XPath2Tests
       [TestMethod]
       public void TestCircularGrammars()
       {
-         try
-         {
-            new CircularGrammar1().Build();
-            new CircularGrammar2().Build();
-            Assert.Fail("should not get here: grammar is circular");
-         }
-         catch (ParseException e)
-         {
-            // OK
-         }
+         TestBadGrammar(new CircularGrammar1(), "grammar is circular, should not build");
+         TestBadGrammar(new CircularGrammar2(), "grammar is circular, should not build");
       }
 
       [TestMethod]
@@ -181,25 +186,19 @@ namespace XPath2Tests
       [TestMethod]
       public void TestLookaheadAmbiguousGrammars()
       {
-         TestBadGrammar(new LL1ProblemGrammar1(), "grammar should fail on too much lookahead needed");
+         //TestBadGrammar(new LL1ProblemGrammar1(), "grammar should fail on too much lookahead needed");
        
          // todo : this one is notfailing, not sure if that's actually a problem
          // the problem here is this would never parse anything, only an infinite stream of (.
-         //TestBadGrammar(new LL1ProblemGrammar2(), "derivability issue");
+         TestBadGrammar(new LL1ProblemGrammar2(), "derivability issue: infinite parser");
+
+     //    TestBadGrammar(new LL1ProblemGrammar3(), "should fail due to more than 1 lookahead needed.");
       }
 
       [TestMethod]
       public void TestLeftRecursion()
       {
-         try
-         {
-            new LeftRecursiveGrammar1().Build();
-            Assert.Fail("left recursion did not fail");
-         }
-         catch (ParseException)
-         {
-            // OK
-         }
+         TestBadGrammar(new LeftRecursiveGrammar1(), "left recursion did not fail");
       }
 
       [TestMethod]
