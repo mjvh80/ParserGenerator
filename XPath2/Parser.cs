@@ -74,10 +74,7 @@ namespace Parser
       {
          GeneralTerminal tTerminal = new GeneralTerminal(terminalExpression);
 
-         return new TerminalParseNode(tTerminal)
-         {
-            Label = "TERMINAL(" + tTerminal.ToString() + ")",
-         };
+         return new TerminalParseNode(tTerminal);
       }
 
       /// <summary>
@@ -323,7 +320,6 @@ namespace Parser
       public EOFNode()
       {
          this.Label = "EOF";
-         //this.GetDecisionTerminals = l => {  throw new ParseException("EOF decision terminals needed"); };
       }
 
       public override Terminal[] GetDecisionTerminals()
@@ -367,15 +363,18 @@ namespace Parser
          if (node == null)
             throw new ParseException("missing productions");
 
+         return node.Prime(s);
+
+#if false
          if (node.Prime(s))
          {
-            Label = "OPTIONAL(" + node.Label + ")";
+            
 
             if (upperBound - requiredCount > 0)
             {
                // todo: WTF we don't even need a parsetable here (just use capture to node)
 
-#if false
+
                var tConflictMap = new Dictionary<Terminal, HashSet<ParseNode>>();
                Action<Terminal, ParseNode> tAddConflict = (t, n) =>
                {
@@ -411,13 +410,14 @@ namespace Parser
                // Replace with lookahead node.
                foreach (Terminal tConflictingTerminal in tConflictMap.Keys) // tConflictingTerminals)
                   mParseTable[tConflictingTerminal] = tLookaheadNode;
-#endif
             }
             return true;
          }
          else
             return false; // return node.IsPriming() < not necessary due to virtual mode
             //return false;
+
+#endif
       }
 
       internal override ParseNode.PrimeMode Mode
@@ -430,6 +430,21 @@ namespace Parser
          set
          {
             base.Mode = value;
+         }
+      }
+
+      public override string Label
+      {
+         get
+         {
+            if (base.Label == null && this.IsPrimed())
+               Label = "OPTIONAL(" + node.Label + ")";
+
+            return base.Label;
+         }
+         protected set
+         {
+            base.Label = value;
          }
       }
 
@@ -533,6 +548,21 @@ namespace Parser
          c.Advance(mTerminal);
       }
 
+      public override string Label
+      {
+         get
+         {
+            if (base.Label == null)
+               this.Label = "TERMINAL(" + mTerminal.ToString() + ")";
+
+            return base.Label;
+         }
+         protected set
+         {
+            base.Label = value;
+         }
+      }
+
       public override Terminal[] GetDecisionTerminals()
       {
          return new[] { mTerminal };
@@ -569,11 +599,6 @@ namespace Parser
 
          Boolean tOtherNodePrimed = otherNode.Prime(s);
 
-         // todo: label should not be set here, PrimeInternal may not even be called if not necessary (ie if Mode returns not None).
-         // Make label virtual as elsewhere.
-         if (tNodePrimed && tOtherNodePrimed)
-            Label = "FOLLOW(" + node.Label + ", " + otherNode.Label + ")";
-
          // In this case we need the other node for decision terminals, thus we could not proceed.
          if (tNodePrimed && node.Optional && !tOtherNodePrimed)
             return false;
@@ -591,6 +616,21 @@ namespace Parser
             return true; // result for othernode is irrelevant (ie may queue itself, but not needed here)
          }
 #endif
+      }
+
+      public override string Label
+      {
+         get
+         {
+            if (base.Label == null && node.IsPrimed() && otherNode.IsPrimed())
+               this.Label = "FOLLOW(" + node.Label + ", " + otherNode.Label + ")";
+
+            return base.Label;
+         }
+         protected set
+         {
+            base.Label = value;
+         }
       }
 
       /// <summary>
@@ -720,9 +760,6 @@ namespace Parser
 
          // With all nodes primed, build parse table.
 
-         //HashSet<Terminal> tConflictingTerminals = new HashSet<Terminal>();
-
-
          // todo: should we check if terminals of one node can conflict?
          foreach (Terminal tTerminal in action.DoGetDecisionTerminals())
             mParseTable.AddTerminal(tTerminal, action); // todo: better error handling if key found
@@ -783,16 +820,6 @@ namespace Parser
       {
          System.Diagnostics.Debug.Assert(this.Mode == PrimeMode.Primed);
          return mParseTable.Terminals.ToArray(); // todo array?
-         //return tParseTable.Keys.ToArray();
-         //else
-         //{
-         //   // todo: do more efficient?
-         //   String[] tLookaheadTerminals = new String[] { };
-         //   tLookaheadTerminals.Merge(action.GetDecisionTerminals(level));
-         //   foreach (ParseNode tNode in otherActions)
-         //      tLookaheadTerminals.Merge(tNode.GetDecisionTerminals(1));
-         //   return tLookaheadTerminals;
-         //}
       }
 
       public override bool ParsesTerminal(Terminal s)
@@ -861,7 +888,7 @@ namespace Parser
    {
       public String DEBUG;
 
-      public String Label; // used for debugging only todo: can use a class type for each type of node (?)
+      public virtual String Label { get; protected set; } // used for debugging only todo: can use a class type for each type of node (?)
 
       //public Boolean Optional = false;
       public virtual Boolean Optional
@@ -1176,7 +1203,9 @@ namespace Parser
 
          Boolean tResult = mNode.Prime(s);
 
-         Label = mNode.Label;
+         if (tResult)
+            Label = mNode.Label;
+         
          // todo: a symbol node is never optional?
          // Optional = mNode.Optional; // todo: make lambda?
 
