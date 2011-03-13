@@ -364,6 +364,9 @@ namespace Parser
 
       protected override bool PrimeInternal(Stack<ParseNode> s)
       {
+         if (node == null)
+            throw new ParseException("missing productions");
+
          if (node.Prime(s))
          {
             Label = "OPTIONAL(" + node.Label + ")";
@@ -372,6 +375,7 @@ namespace Parser
             {
                // todo: WTF we don't even need a parsetable here (just use capture to node)
 
+#if false
                var tConflictMap = new Dictionary<Terminal, HashSet<ParseNode>>();
                Action<Terminal, ParseNode> tAddConflict = (t, n) =>
                {
@@ -407,11 +411,26 @@ namespace Parser
                // Replace with lookahead node.
                foreach (Terminal tConflictingTerminal in tConflictMap.Keys) // tConflictingTerminals)
                   mParseTable[tConflictingTerminal] = tLookaheadNode;
+#endif
             }
             return true;
          }
          else
-            return false;
+            return false; // return node.IsPriming() < not necessary due to virtual mode
+            //return false;
+      }
+
+      internal override ParseNode.PrimeMode Mode
+      {
+         get
+         {
+            // An optional node is primed if it's underlying node is.
+            return node == null ? PrimeMode.None : node.Mode;
+         }
+         set
+         {
+            base.Mode = value;
+         }
       }
 
       public override Terminal[] GetDecisionTerminals()
@@ -423,17 +442,29 @@ namespace Parser
 
       public override void Parse(ParseContext c)
       {
-         Debug.Assert(Mode == PrimeMode.Primed);
+         //Debug.Assert(Mode == PrimeMode.Primed);
+         Debug.Assert(node.IsPrimed());
 
          // Parse minimal count.
          for (Int32 i = 0; i < requiredCount; i++)
             node.Parse(c); // simply go in
 
+     //    Debug.Assert(this.IsPrimed()); // this would be an error...
+
          // Parse optional max count.
          Int32 tCountLeft = (upperBound == Int32.MaxValue ? Int32.MaxValue : (upperBound - requiredCount));
          for (Int32 i = 0; i < tCountLeft && tCountLeft > 0; i++)
          {
-            c.AdvanceInterleaved();
+            c.AdvanceInterleaved(); // todo: should not be needed.. check
+
+            foreach (GeneralTerminal tTerminal in node.GetDecisionTerminals()) // > todo cache
+               if (tTerminal.CanAdvance(c))
+               {
+                  node.Parse(c);
+                  goto next;
+               }
+
+#if false // old
             foreach (GeneralTerminal tTerminal in mParseTable.Terminals)
                if (tTerminal.CanAdvance(c))
                {
@@ -441,6 +472,7 @@ namespace Parser
                   mParseTable[tTerminal].Parse(c);
                   goto next;
                }
+#endif
 
             break; // we're done
 
@@ -469,8 +501,11 @@ namespace Parser
       {
          get
          {
-            Debug.Assert(Mode == PrimeMode.Primed);
-
+            // Note: we used to check if the node was primed here, but this is not really correct.
+            // Some situations require us to know if a node is optional, even if not primed.
+            // Not requiring this simplifies FollowedBy, and priming no longer needs a stack to keep track
+            // of nodes still needing priming.
+          
             return requiredCount == 0;
          }
       }
@@ -527,6 +562,9 @@ namespace Parser
 
       protected override bool PrimeInternal(Stack<ParseNode> s)
       {
+         if (node == null || otherNode == null)
+            throw new ParseException("missing productions");
+
          Boolean tNodePrimed = node.Prime(s);
 
          Boolean tOtherNodePrimed = otherNode.Prime(s);
@@ -534,13 +572,35 @@ namespace Parser
          if (tNodePrimed && tOtherNodePrimed)
             Label = "FOLLOW(" + node.Label + ", " + otherNode.Label + ")";
 
+         if (tNodePrimed && node.Optional && !tOtherNodePrimed)
+            throw new ParseException("tada"); // todo
+
+#if true
+         return tNodePrimed && (tOtherNodePrimed || otherNode.IsPriming());
+#else
          if (!tNodePrimed) // if it's not primed we can't say if it's optional
             return false;
          else if (node.Optional)
-            return tNodePrimed && tOtherNodePrimed;
+            return tNodePrimed && (tOtherNodePrimed);
          else
          {
             return true; // result for othernode is irrelevant (ie may queue itself, but not needed here)
+         }
+#endif
+      }
+
+      internal override ParseNode.PrimeMode Mode
+      {
+         get
+         {
+            if (node.Mode != PrimeMode.None && otherNode.Mode != PrimeMode.None)
+               return PrimeMode.Priming;
+
+            return base.Mode;
+         }
+         set
+         {
+            base.Mode = value;
          }
       }
 
@@ -556,9 +616,7 @@ namespace Parser
          Debug.Assert(Mode == PrimeMode.Primed);
 
          // A B parses A only if B is optional. If A is optional, then we test B.
-         // note: must check otherNode.Optional *second* as it may not be primed in some situations (in which 
-         // first should fail.. todo: this should be an exception).
-         return (node.ParsesTerminal(pTerminal) && otherNode.Optional) || (node.Optional && otherNode.ParsesTerminal(pTerminal));
+         return (otherNode.Optional && node.ParsesTerminal(pTerminal)) || (node.Optional && otherNode.ParsesTerminal(pTerminal));
       }
 
       public override void Parse(ParseContext c)
@@ -599,7 +657,6 @@ namespace Parser
       {
          get
          {
-            Debug.Assert(Mode == PrimeMode.Primed);
             return node.Optional && otherNode.Optional;
          }
       }
@@ -621,12 +678,18 @@ namespace Parser
 
       protected override bool PrimeInternal(Stack<ParseNode> s)
       {
+         if (action == null)
+            throw new ParseException("missing productions");
+
          Boolean tAllPrimed = true;
 
          tAllPrimed = action.Prime(s) && tAllPrimed;
          if (tAllPrimed)
             foreach (ParseNode tNode in otherActions)
-               tAllPrimed = tNode.Prime(s) && tAllPrimed;
+               if (tNode == null)
+                  throw new ParseException("missing production");
+               else
+                  tAllPrimed = tNode.Prime(s) && tAllPrimed;
 
          if (!tAllPrimed)
             return false;
@@ -805,10 +868,15 @@ namespace Parser
          return true; // default primer
       }
       
-      protected enum PrimeMode { None, Priming, Primed };
-      protected PrimeMode Mode = PrimeMode.None;
+      internal enum PrimeMode { None = 0, Priming, Primed };
+      
+      //protected PrimeMode Mode = PrimeMode.None;
+      // Some nodes are primed based on their underlying node, such as optional nodes.
+      internal virtual PrimeMode Mode { get; set; }
+     
       public Boolean Prime(Stack<ParseNode> primeStack) 
       {
+       
          switch (Mode)
          {
             case PrimeMode.None:
@@ -818,7 +886,7 @@ namespace Parser
                else
                {
                   Mode = PrimeMode.None;
-                  primeStack.Push(this); // couldn't prime this node, queue for retry
+                 // primeStack.Push(this); // couldn't prime this node, queue for retry
                }
                
                break;
@@ -845,7 +913,6 @@ namespace Parser
       public virtual Boolean ParsesTerminal(Terminal pTerminal)
       {
          Debug.Assert(Mode == PrimeMode.Primed);
-
          return false;
       }
 
@@ -1009,6 +1076,7 @@ namespace Parser
       public override void Parse(ParseContext c)
       {
          // todo: build large, single .NET regex to do our heavy lifting
+         // ie (?<production>...) | (?<other_production>...) etc.
          // todo: every time we get here, we already know which terminal advanced, can we use this?
 
          Int32 tPosition = c.Position;
@@ -1083,6 +1151,9 @@ namespace Parser
          if (mNode == null)
             mNode = mNodeGenerator();
 
+         if (mNode == null)
+            throw new ParseException("missing production");
+
          Boolean tResult = mNode.Prime(s);
 
          Label = mNode.Label;
@@ -1096,8 +1167,8 @@ namespace Parser
       {
          get
          {
-            Debug.Assert(Mode == PrimeMode.Primed);
-
+            if (mNode == null)
+               throw new ParseException("?");
             return mNode.Optional;
          }
       }
@@ -1631,8 +1702,8 @@ namespace Parser
 
    public abstract class ParserBase
    {
-      private List<SymbolNode> _mPrimeTargets = new List<SymbolNode>();
-
+      protected List<SymbolNode> _mPrimeTargets = new List<SymbolNode>();
+      
       protected ParseNode Root;
 
       protected ParserBase()
@@ -1663,6 +1734,9 @@ namespace Parser
          if (Root == null)
             throw new Exception("no root defined");
 
+         if (Root.IsPrimed())
+            throw new ParseException("can only call Build() once");
+
          // Prime.
          Stack<ParseNode> tPrimeStack = new Stack<ParseNode>();
 
@@ -1679,6 +1753,12 @@ namespace Parser
          while (!Root.IsPrimed())
             Root.Prime(tPrimeStack); // todo: remove stack
 #endif
+
+         // Verify all nodes were primed, if one was not, it's not reachable from the Root.
+         // todo: note this won't catch things like "a".Terminal as it won't pass through Rule, maybe finda  good way to tackle that?
+         foreach (SymbolNode tNode in _mPrimeTargets)
+            if (!tNode.IsPrimed())
+               throw new ParseException("unreachable terminal detected");
 
          return this;
       }

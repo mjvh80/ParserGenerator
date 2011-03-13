@@ -97,7 +97,14 @@ namespace XPath2Tests
 			   "QNAME >> QNAME",
 			   "QNAME << QNAME",
          })
-            mParser.Parse(tXPath);
+            try
+            {
+               mParser.Parse(tXPath);
+            }
+            catch (Exception e)
+            {
+               throw new Exception("Error parsing: " + tXPath, e);
+            }
       }
    }
 }

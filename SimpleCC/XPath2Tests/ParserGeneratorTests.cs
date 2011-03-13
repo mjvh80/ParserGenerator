@@ -53,6 +53,20 @@ namespace XPath2Tests
       }
    }
 
+   internal class LL1ProblemGrammar2 : TestParser
+   {
+      // tests derivability to terminals, problematic grammar from coco docs
+      protected override void DefineGrammar()
+      {
+         ParseNode X = null, Y = null;
+         Root = Rule(() => X.EOF());
+         X = Rule(() => Y.FollowedBy(";"));
+         Y = Rule(() => "\\(".FollowedBy(X, "\\)"));
+         //X = Y ';'. 
+         //Y = '(' X ')'
+      }
+   }
+
    internal class TrickyGrammar1 : TestParser
    {
       protected override void DefineGrammar()
@@ -64,6 +78,38 @@ namespace XPath2Tests
          A = Rule(() => "a".Or(B.FollowedBy(C, "d"))); //  A = (a | B C d). 
          B = Rule(() => "b".Optional().FollowedBy("a")); // B = [b] a. 
          C = Rule(() => "c".FollowedBy("d".ZeroOrMore())); //C = c {d}.
+      }
+   }
+
+   internal class IncompleteGrammar1 : TestParser
+   {
+      protected override void DefineGrammar()
+      {
+         ParseNode A = null; // no production for A
+         Root = Rule(() => A);
+      }
+   }
+
+   internal class IncompleteGrammar2 : TestParser
+   {
+      protected override void DefineGrammar()
+      {
+         ParseNode A = null, B = null; // no production for A
+         Root = Rule(() => A.FollowedBy(B));
+         A = "a".Terminal();
+      }
+   }
+
+   internal class UnreachableTerminal1 : TestParser
+   {
+      protected override void DefineGrammar()
+      {
+         ParseNode A = null, B = null;
+         Root = Rule(() => A);
+         A = "a".Terminal();
+         B = Rule(() => "b".Terminal()); // b is not reachable..
+
+         // todo: if we're not using Rule, unreachable terminals are not detected...
       }
    }
 
@@ -135,15 +181,11 @@ namespace XPath2Tests
       [TestMethod]
       public void TestLookaheadAmbiguousGrammars()
       {
-         try
-         {
-            new LL1ProblemGrammar1().Build();
-            Assert.Fail("grammar should fail on too much lookahead needed");
-         }
-         catch (ParseException e)
-         {
-            // OK
-         }
+         TestBadGrammar(new LL1ProblemGrammar1(), "grammar should fail on too much lookahead needed");
+       
+         // todo : this one is notfailing, not sure if that's actually a problem
+         // the problem here is this would never parse anything, only an infinite stream of (.
+         //TestBadGrammar(new LL1ProblemGrammar2(), "derivability issue");
       }
 
       [TestMethod]
@@ -158,6 +200,43 @@ namespace XPath2Tests
          {
             // OK
          }
+      }
+
+      [TestMethod]
+      public void TestMiscellaneous()
+      {
+         TestBadGrammar(new IncompleteGrammar1(), "incomplete grammar should not parse");
+         TestBadGrammar(new IncompleteGrammar2(), "incomplete grammar should not parse");
+         TestBadGrammar(new UnreachableTerminal1(), "unreachable terminal not detected");
+      }
+
+      [TestMethod]
+      public void TestDoubleBuild()
+      {
+         ParserBase tMath = new SimpleMath().Build();
+         try
+         {
+            tMath.Build();
+            Assert.Fail("should not be able to build twice");
+         }
+         catch (ParseException)
+         {
+            // ok
+         }
+      }
+
+      protected void TestBadGrammar(ParserBase pParser, String msg)
+      {
+         try
+         {
+            pParser.Build();
+            Assert.Fail(msg);
+         }
+         catch (ParseException)
+         {
+            // OK
+         }
+
       }
 
       [TestMethod]

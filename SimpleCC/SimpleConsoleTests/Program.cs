@@ -20,7 +20,7 @@ namespace SimpleConsoleTests
          // (a | b) b
 
          String tInput = "";
-         for (; ; ) 
+         for (; ; )
             try
             {
                SimpleRegex tLeft, tRight, tExpectedPrefix;
@@ -51,7 +51,7 @@ namespace SimpleConsoleTests
 
                Console.WriteLine("Equal: " + tLeft.SemanticEquals(tRight));
                Console.WriteLine("Matches exp. prefix: " + tLeft.GetCommonPrefix(new Dictionary<Pair, SimpleRegex>(), 0, tRight).SharesCommonPrefixWith(tExpectedPrefix));
-               Console.WriteLine("Intersect: " + tLeft.Intersects(tRight) + " - intersection is " + tLeft.Intersect(new Dictionary<Pair,SimpleRegex>(), 0, tRight));
+               Console.WriteLine("Intersect: " + tLeft.Intersects(tRight) + " - intersection is " + tLeft.Intersect(new Dictionary<Pair, SimpleRegex>(), 0, tRight));
                Console.WriteLine("Prefix intersect: " + tLeft.SharesCommonPrefixWith(tRight) + " - prefix intersection is " + tLeft.GetCommonPrefix(new Dictionary<Pair, SimpleRegex>(), 0, tRight));
 
             }
@@ -102,6 +102,7 @@ namespace SimpleConsoleTests
             Console.Write("Generating parser...");
             System.Diagnostics.Stopwatch tTimer = System.Diagnostics.Stopwatch.StartNew();
             tParser = new XPath2Parser().Build();
+            RunTests(tParser);
             Console.WriteLine("OK in {0}ms", tTimer.ElapsedMilliseconds);
          }
          catch (Exception e)
@@ -111,7 +112,7 @@ namespace SimpleConsoleTests
             return;
          }
 
-         for(;;)
+         for (; ; )
          {
             Console.Write(">");
             try
@@ -126,9 +127,102 @@ namespace SimpleConsoleTests
             catch (Exception e)
             {
                Console.WriteLine("ERROR: " + e.Message);
-         //      Console.WriteLine(e.StackTrace);
+               //      Console.WriteLine(e.StackTrace);
             }
          }
+      }
+
+      // Fucking MSTest is shitting out on these tests with binding failures and other undeterministic behaviour.
+      // Do here for now.
+      static void RunTests(ParserBase pParser)
+      {
+         // Simple parse, expecting no exceptions.
+         foreach (String tXPath in new List<String>()
+         {
+            "/",
+            "//*",
+			   "//QNAME",
+			   "/*",
+			   "/QNAME",
+            "QNAME",
+            "/QNAME",
+			   "/QNAME/QNAME",
+			   "/QNAME//QNAME",
+			   "/*//*",
+			   "$VARNAME",
+			   "($VARNAME)",
+			   "(QNAME)",
+			   ".",
+			   "(.)",
+			   "QNAME()",
+			   "QNAME(QNAME)",
+			   "QNAME(QNAME, QNAME)",
+			   "QNAME(QNAME,$VARNAME)",
+			   "QNAME ( QNAME , $VARNAME  )  ",
+			   "   QNAME   ",
+			   "   .   ",
+			   "node()", "node(  )", "node ( ) ",
+			   "text()", " text ()", " text (  )",
+			   "comment()", "processing-instruction()",
+			   "attribute(QNAME)",
+			   "element(QNAME)",
+			   "schema-attribute(QNAME)",
+			   "schema-element(QNAME)",
+			   "element(*)",
+			   "attribute(*)",
+			   "element(QNAME, QNAME?)", "element(QNAME, QNAME)", "element(*,QNAME?)",
+			   "attribute(QNAME, QNAME)", "attribute(*,QNAME)",
+			   "for $VARNAME in QNAME return ( for $VARNAME in QNAME return *)",
+			   "for $VARNAME in QNAME return .",
+			   "for $VARNAME in QNAME return QNAME",
+			   "()", "(  )", " ( ) ",
+			   "/../*",
+			   "QNAME[*][*]", "QNAME[QNAME][QNAME]", "QNAME[ * ][ QNAME]",
+			   "some $VARNAME in QNAME satisfies (some $VARNAME in QNAME satisfies .)",
+			   "if (.) then . else .",
+			   "if (.,.,. , .) then . else *",
+			   "for $VARNAME in (if (.) then . else *) return QNAME",
+			   "(( (((((() instance of empty-sequence()) except ()) | ()) idiv ()) + () ) to ()) and ()) or ()",
+			   "self::*",
+			   "descendant-or-self::*",
+			   "following-sibling::*",
+			   "following::node()",
+			   "namespace::*",
+			   "parent::*",
+			   "ancestor::*",
+			   "preceding-sibling::*",
+			   "preceding::*",
+			   "ancestor-or-self::*",
+			   "/descendant::*",
+			   "//child::*",
+			   "QNAME = QNAME",
+			   "QNAME > QNAME",
+			   "QNAME < QNAME",
+			   "QNAME >= QNAME",
+			   "QNAME <= QNAME",
+			   "QNAME != QNAME",
+			   "QNAME eq QNAME",
+			   "QNAME lt QNAME",
+			   "QNAME gt QNAME",
+			   "QNAME ge QNAME",
+			   "QNAME le QNAME",
+			   "QNAME is QNAME",
+			   "QNAME ne QNAME",
+			   "QNAME >> QNAME",
+			   "QNAME << QNAME",
+         })
+         {
+            try
+            {
+               pParser.Parse(tXPath);
+            }
+            catch (Exception e)
+            {
+               Console.WriteLine("TEST FAILED: xpath = " + tXPath + " error = " + e.Message);
+               return;
+            }
+         }
+         Console.WriteLine("TESTS PASSED");
       }
    }
 }
