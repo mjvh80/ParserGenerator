@@ -186,13 +186,12 @@ namespace XPath2Tests
       [TestMethod]
       public void TestLookaheadAmbiguousGrammars()
       {
-         //TestBadGrammar(new LL1ProblemGrammar1(), "grammar should fail on too much lookahead needed");
+         TestBadGrammar(new LL1ProblemGrammar1(), "grammar should fail on too much lookahead needed");
        
-         // todo : this one is notfailing, not sure if that's actually a problem
          // the problem here is this would never parse anything, only an infinite stream of (.
          TestBadGrammar(new LL1ProblemGrammar2(), "derivability issue: infinite parser");
 
-     //    TestBadGrammar(new LL1ProblemGrammar3(), "should fail due to more than 1 lookahead needed.");
+         TestBadGrammar(new LL1ProblemGrammar3(), "should fail due to more than 1 lookahead needed.");
       }
 
       [TestMethod]

@@ -342,7 +342,7 @@ namespace Parser
          mParseTable = new ParseTable<ParseNode>();
       }
 
-      internal override bool DerivesTo(ParseNode pNode)
+      internal override bool DerivesExclusivelyTo(ParseNode pNode)
       {
          Debug.Assert(IsPrimed());
 
@@ -350,13 +350,14 @@ namespace Parser
             return true;
 
          if (!this.Optional)
-            return node.DerivesTo(pNode);
+            return node.DerivesExclusivelyTo(pNode);
          
          return false;
       }
 
       internal override void VerifyTree()
       {
+         base.VerifyTree();
          node.VerifyTree();
       }
 
@@ -530,17 +531,18 @@ namespace Parser
          this.otherNode = otherNode;
       }
 
-      internal override bool DerivesTo(ParseNode pNode)
+      internal override bool DerivesExclusivelyTo(ParseNode pNode)
       {
          if (pNode == this)
             return true;
          // todo: asserts
          if (!node.Optional)
-            return node.DerivesTo(pNode);
-         if (!otherNode.IsPrimed() || otherNode.Optional) // todo..
+            return node.DerivesExclusivelyTo(pNode);
+         
+         if (otherNode.Optional)
             return false; // both optional
 
-         return otherNode.DerivesTo(pNode);
+         return otherNode.DerivesExclusivelyTo(pNode);
       }
 
       internal override void VerifyTree()
@@ -550,12 +552,12 @@ namespace Parser
          if (mNodeVerified)
             return;
 
-         mNodeVerified = true;
+         base.VerifyTree();
 
-         if (node.DerivesTo(this))
+         if (node.DerivesExclusivelyTo(this))
             throw new ParseException("derives to self");
 
-         if (otherNode.DerivesTo(this))
+         if (otherNode.DerivesExclusivelyTo(this))
             throw new ParseException("derives to self");
 
          node.VerifyTree();
@@ -697,17 +699,17 @@ namespace Parser
          this.otherActions = otherActions;
       }
 
-      internal override bool DerivesTo(ParseNode pNode)
+      internal override bool DerivesExclusivelyTo(ParseNode pNode)
       {
          Debug.Assert(this.IsPrimed());
 
          if (pNode == this)
             return true;
 
-         Boolean tAllDerive = !action.Optional && action.DerivesTo(pNode);
+         Boolean tAllDerive = !action.Optional && action.DerivesExclusivelyTo(pNode);
          foreach (ParseNode tOtherNode in otherActions)
             if (tAllDerive)
-               tAllDerive = !tOtherNode.Optional && tOtherNode.DerivesTo(pNode);
+               tAllDerive = !tOtherNode.Optional && tOtherNode.DerivesExclusivelyTo(pNode);
             else
                break;
 
@@ -719,10 +721,10 @@ namespace Parser
          if (mNodeVerified)
             return;
 
-         mNodeVerified = true; // prevent reentry before we're done
+         base.VerifyTree(); // also prevenst reentry, marks node verified..
 
          // all derive exclusively to this
-         if (action.DerivesTo(this) && otherActions.All(n => n.DerivesTo(this)))
+         if (action.DerivesExclusivelyTo(this) && otherActions.All(n => n.DerivesExclusivelyTo(this)))
             throw new ParseException("node derives exclusively to self"); // todo: msg
 
          action.VerifyTree();
@@ -907,7 +909,7 @@ namespace Parser
 
       // Return true if we ended up where we started, exclusively.
       // If other paths are possible, this should return false.
-      internal virtual Boolean DerivesTo(ParseNode pNode)
+      internal virtual Boolean DerivesExclusivelyTo(ParseNode pNode)
       {
          if (pNode == this)
             return true;
@@ -922,6 +924,9 @@ namespace Parser
       internal virtual void VerifyTree()
       {
          mNodeVerified = true;
+
+         if (!this.IsPrimed())
+            throw new ParseException("unprimed node detected"); // todo: better error?
       }
       
       internal enum PrimeMode { None = 0, Priming, Primed };
@@ -1168,9 +1173,9 @@ namespace Parser
 
       }
 
-      internal override bool DerivesTo(ParseNode pNode)
+      internal override bool DerivesExclusivelyTo(ParseNode pNode)
       {
-         return this == pNode || mNode.DerivesTo(pNode);
+         return this == pNode || mNode.DerivesExclusivelyTo(pNode);
       }
 
       internal override void  VerifyTree()
@@ -1499,6 +1504,7 @@ namespace Parser
 #endif
 
          // Second walk.
+         // todo: also use this to verify all nodes are primed!
          Root.VerifyTree();
 
          // Verify all nodes were primed, if one was not, it's not reachable from the Root.
