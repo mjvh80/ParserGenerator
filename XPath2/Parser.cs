@@ -908,6 +908,8 @@ namespace Parser
       }
 
       // Return true if we ended up where we started, exclusively.
+      // If other paths were possible this returns false. If any path is optional, this would not be exclusive as 
+      // we could match the empty string instead.
       // If other paths are possible, this should return false.
       internal virtual Boolean DerivesExclusivelyTo(ParseNode pNode)
       {
