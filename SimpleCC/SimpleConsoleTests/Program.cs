@@ -97,13 +97,16 @@ namespace SimpleConsoleTests
       static void Main(string[] args)
       {
          ParserBase tParser = null;
+         System.Diagnostics.Stopwatch tTimer = null;
          try
          {
             Console.Write("Generating parser...");
-            System.Diagnostics.Stopwatch tTimer = System.Diagnostics.Stopwatch.StartNew();
+            tTimer = System.Diagnostics.Stopwatch.StartNew();
             tParser = new XPath2Parser().Build();
-            RunTests(tParser);
             Console.WriteLine("OK in {0}ms", tTimer.ElapsedMilliseconds);
+            tTimer = System.Diagnostics.Stopwatch.StartNew();
+            RunTests(tParser);
+            Console.WriteLine(" ... in {0}ms", tTimer.ElapsedMilliseconds);
          }
          catch (Exception e)
          {
@@ -121,8 +124,9 @@ namespace SimpleConsoleTests
                if (tLine == "!")
                   return;
 
+               tTimer = System.Diagnostics.Stopwatch.StartNew();
                tParser.Parse(tLine);
-               Console.WriteLine("OK");
+               Console.WriteLine("OK in {0}ms", tTimer.ElapsedMilliseconds);
             }
             catch (Exception e)
             {
@@ -222,7 +226,7 @@ namespace SimpleConsoleTests
                return;
             }
          }
-         Console.WriteLine("TESTS PASSED");
+         Console.Write("TESTS PASSED");
       }
    }
 }

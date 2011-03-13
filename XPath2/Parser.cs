@@ -569,13 +569,17 @@ namespace Parser
 
          Boolean tOtherNodePrimed = otherNode.Prime(s);
 
+         // todo: label should not be set here, PrimeInternal may not even be called if not necessary (ie if Mode returns not None).
+         // Make label virtual as elsewhere.
          if (tNodePrimed && tOtherNodePrimed)
             Label = "FOLLOW(" + node.Label + ", " + otherNode.Label + ")";
 
+         // In this case we need the other node for decision terminals, thus we could not proceed.
          if (tNodePrimed && node.Optional && !tOtherNodePrimed)
-            throw new ParseException("tada"); // todo
+            return false;
 
 #if true
+         // Return true only if the other node is primed, or is priming. If it would not be priming, it may never get primed, so don't proceed in that case.
          return tNodePrimed && (tOtherNodePrimed || otherNode.IsPriming());
 #else
          if (!tNodePrimed) // if it's not primed we can't say if it's optional
@@ -589,18 +593,34 @@ namespace Parser
 #endif
       }
 
+      /// <summary>
+      /// A FollowedByNode is primed if it's necessary conditions for priming are met, in other words, calling prime is not necessary as
+      /// it's internal nodes are in a state necessary to continue (so things like decision terminals are available because the node and otherNode are
+      /// in a state where this is possible.
+      /// </summary>
       internal override ParseNode.PrimeMode Mode
       {
          get
          {
-            if (node.Mode != PrimeMode.None && otherNode.Mode != PrimeMode.None)
-               return PrimeMode.Priming;
+            // 1 . check if our dependencies are primed. If not we must call prime to ensure either one gets primed.
+            if (node.Mode == PrimeMode.None || otherNode.Mode == PrimeMode.None)
+               return PrimeMode.None; // prime must be called to set either priming
 
-            return base.Mode;
+            if (node.IsPrimed())
+            {
+               if (node.Optional)
+                  // otherNode is needed for decision terminals, so we're only primed if it is primed
+                  return otherNode.IsPrimed() ? PrimeMode.Primed : PrimeMode.Priming;
+               else
+                  // By our first if, othernode must be priming. So we are ok to return primed here: this node can parse now.
+                  return PrimeMode.Primed;
+            }
+
+            return PrimeMode.Priming;
          }
          set
          {
-            base.Mode = value;
+            //base.Mode = value;
          }
       }
 
