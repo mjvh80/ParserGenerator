@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Parser;
+using System.Linq.Expressions;
 
 namespace XPath2Tests
 {
@@ -126,6 +127,13 @@ namespace XPath2Tests
       }
    }
 
+   internal class foo
+   {
+      protected void foobar()
+      {
+      }
+   }
+
    internal class CircularGrammar2 : TestParser
    {
       protected override void DefineGrammar()
@@ -145,14 +153,54 @@ namespace XPath2Tests
    {
       protected override void DefineGrammar()
       {
-         ParseNode Multiplication = null, Expression = null, Factor = null, Constant = null, Digit = null;
+         ParseNode Multiplication = null, Expr = null, Factor = null, Constant = null, Digit = null;
 
-         Root = Rule(() => Expression);
-         Expression = Rule(() => Multiplication.FollowedBy("\\+".FollowedBy(Multiplication).Optional()));
+         Root = Rule(() => Expr);
+         Expr = Rule(() => Multiplication.FollowedBy("\\+".FollowedBy(Multiplication).Optional()));
          Multiplication = Rule(() => Factor.FollowedBy("\\*".FollowedBy(Multiplication).Optional()));
-         Factor = Rule(() => Constant.Or("\\(".FollowedBy(Expression, "\\)")));
+         Factor = Rule(() => Constant.Or("\\(".FollowedBy(Expr, "\\)")));
          Constant = Rule(() => Digit.OneOrMore()); //> emit list of digits (1 or more)
-         Digit = Rule(() => "1".Or("2").Or("3").Or("4").Or("5").Or("6").Or("7").Or("8").Or("9").Or("0")); // todo: use regex instead
+         // todo: use regex instead
+         Digit = Rule(() => "1".Or("2").Or("3").Or("4").Or("5").Or("6").Or("7").Or("8").Or("9").Or("0"));
+
+         /*
+         Root = Rule(() => Expr);
+         Expr = Rule(() => Multiplication.FollowedBy("\\+".FollowedBy(Multiplication).Optional()));
+         Multiplication = Rule(() => Factor.FollowedBy("\\*".FollowedBy(Multiplication).Optional())).Emit(n =>
+         {
+            if (n.type == Factor)
+               ;
+
+         });
+         Factor = Rule(() => Constant.Or("\\(".FollowedBy(Expr, "\\)")));
+         Constant = Rule(() => Digit.OneOrMore()).Emit(n => Expression.Constant(Int32.Parse(n.ToString())));
+         // todo: use regex instead
+         Digit = Rule(() => "1".Or("2").Or("3").Or("4").Or("5").Or("6").Or("7").Or("8").Or("9").Or("0")).Emit(e => e.First().AsInt32()); ;
+         */
+      }
+   }
+
+   internal class ResultNode { }
+
+   internal class CompoundResultNode : ResultNode
+   {
+      public enum Kind { Choice, Sequence, Optional, Value }
+
+      public ResultNode[] Children;
+   }
+
+   internal class ValueResultNode : ResultNode
+   {
+      public Object Value;
+   }
+
+   internal static class _ExpressionExtensions
+   {
+      public static ConstantExpression AsInt32(this Expression e)
+      {
+         if (!(e is ConstantExpression))
+            throw new InvalidOperationException("....");
+         return Expression.Constant(Convert.ToInt32(((ConstantExpression)e).Value));
       }
    }
 

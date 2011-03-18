@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using SimpleRegexIntersector;
 using System.Diagnostics;
+using System.Linq.Expressions;
 
 // 2 ideas:
 // 1. we can cache the current lookahead, advance takes a terminal as follows:
@@ -987,6 +988,11 @@ namespace Parser
          // todo: add positional info
          throw new ParseException("expected one of '{0}', found '{1}'", String.Join(", ", terminals), String.Join<Terminal>(" or ", terminals)); // todo
       }
+
+      public ParseNode Emit(Func<IEnumerable<Expression>, Expression> emitter)
+      {
+         throw new NotImplementedException("this is just a try");
+      }
    }
 
    // only intended for insertion
@@ -1162,16 +1168,16 @@ namespace Parser
       }
    }
 
-   public class SymbolNode : ParseNode
+   public class ProductionNode : ParseNode
    {
       protected ParseNode mNode;
       protected Func<ParseNode> mNodeGenerator;
 
-      public SymbolNode(Func<ParseNode> lazy)
+      public ProductionNode(Func<ParseNode> lazy)
       {
          mNodeGenerator = lazy;
 
-         Label = "SYMBOL"; // todo?
+         Label = "PRODUCTION"; // todo?
 
       }
 
@@ -1460,7 +1466,7 @@ namespace Parser
 
    public abstract class ParserBase
    {
-      protected List<SymbolNode> _mPrimeTargets = new List<SymbolNode>();
+      protected List<ProductionNode> _mPrimeTargets = new List<ProductionNode>();
       
       protected ParseNode Root;
 
@@ -1471,7 +1477,7 @@ namespace Parser
 
       protected ParseNode Rule(Func<ParseNode> definition)
       {
-         SymbolNode tNode = new SymbolNode(definition);
+         ProductionNode tNode = new ProductionNode(definition);
          _mPrimeTargets.Add(tNode);
          return tNode;
       }
@@ -1511,7 +1517,7 @@ namespace Parser
 
          // Verify all nodes were primed, if one was not, it's not reachable from the Root.
          // todo: note this won't catch things like "a".Terminal as it won't pass through Rule, maybe finda  good way to tackle that?
-         foreach (SymbolNode tNode in _mPrimeTargets)
+         foreach (ProductionNode tNode in _mPrimeTargets)
             if (!tNode.IsPrimed())
                throw new ParseException("unreachable terminal detected");
 
