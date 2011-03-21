@@ -5,6 +5,7 @@ using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Parser;
 using System.Linq.Expressions;
+using XPath2;
 
 namespace XPath2Tests
 {
@@ -151,73 +152,159 @@ namespace XPath2Tests
 
    internal class SimpleMath : TestParser
    {
+      protected ParseNode Multiplication, Expr, Factor, Constant, Digit;
+
       protected override void DefineGrammar()
       {
-         ParseNode Multiplication = null, Expr = null, Factor = null, Constant = null, Digit = null;
-
-         Root = Rule(() => Expr);
-         Expr = Rule(() => Multiplication.FollowedBy("\\+".FollowedBy(Multiplication).Optional()));
-         Multiplication = Rule(() => Factor.FollowedBy("\\*".FollowedBy(Multiplication).Optional()));
-         Factor = Rule(() => Constant.Or("\\(".FollowedBy(Expr, "\\)")));
-         Constant = Rule(() => Digit.OneOrMore()); //> emit list of digits (1 or more)
+         Define(out Root, () => Expr);
+         Define(out Expr, () => Multiplication.FollowedBy("\\+".FollowedBy(Multiplication).Optional()));
+         Define(out Multiplication, () => Factor.FollowedBy("\\*".FollowedBy(Multiplication).Optional()));
+         Define(out Factor, () => Constant.Or("\\(".FollowedBy(Expr, "\\)")));
+         Define(out Constant, () => Digit.OneOrMore()); //> emit list of digits (1 or more)
          // todo: use regex instead
-         Digit = Rule(() => "1".Or("2").Or("3").Or("4").Or("5").Or("6").Or("7").Or("8").Or("9").Or("0"));
+         Define(out Digit, () => "1".Or("2").Or("3").Or("4").Or("5").Or("6").Or("7").Or("8").Or("9").Or("0"));
 
-         /*
-         Root = Rule(() => Expr);
-         Expr = Rule(() => Multiplication.FollowedBy("\\+".FollowedBy(Multiplication).Optional()));
-         Multiplication = Rule(() => Factor.FollowedBy("\\*".FollowedBy(Multiplication).Optional())).Emit(n =>
-         {
-            if (n.type == Factor)
-               ;
+         // Flatten the graph to production derivations.
+         Root.Rewrite(n => new FlatteningVisitor().Flatten((ProductionSyntaxNode)n));
 
-         });
-         Factor = Rule(() => Constant.Or("\\(".FollowedBy(Expr, "\\)")));
-         Constant = Rule(() => Digit.OneOrMore()).Emit(n => Expression.Constant(Int32.Parse(n.ToString())));
-         // todo: use regex instead
-         Digit = Rule(() => "1".Or("2").Or("3").Or("4").Or("5").Or("6").Or("7").Or("8").Or("9").Or("0")).Emit(e => e.First().AsInt32()); ;
-         */
+         // Rewrite constants to return digits, and set compiler.
+         Constant.Rewrite(n =>
+            {
+               String tNumber = "";
+               if (n.Children == null)
+                  tNumber = (String)n.Value;
+               else
+                  foreach (SyntaxNode tValue in n.Children)
+                     tNumber = tNumber + (String)tValue.Value;
+
+               return new ValueSyntaxNode()
+               {
+                  Compiler = n2 => Expression.Constant(Int32.Parse((String)n2.Value)),
+                  Value = tNumber
+               };
+            });
+
+         // Compile a factor:
+         Factor.SetCompiler(n =>
+            {
+               if ((String)n.Children[0].Value == "(") // expression
+               {
+                  return n.Children[1].Compile();
+               }
+               else
+                  return n.Children[0].Compile();
+            });
+
+         Multiplication.SetCompiler(n =>
+            {
+               Expression tLeft = n.Children[0].Compile();
+
+               if (n.Children.Length == 1)
+                  return tLeft;
+
+               return Expression.Multiply(tLeft, n.Children[2].Compile());
+            });
+
+         Expr.SetCompiler(n =>
+            {
+               Expression tLeft = n.Children[0].Compile();
+
+               if (n.Children.Length == 1)
+                  return tLeft;
+
+               return Expression.Add(tLeft, n.Children[2].Compile());
+            });
+
+         Root.SetCompiler(n => n.Children[0].Compile());
+
       }
-   }
 
-   internal class ResultNode { }
-
-   internal class CompoundResultNode : ResultNode
-   {
-      public enum Kind { Choice, Sequence, Optional, Value }
-
-      public ResultNode[] Children;
-   }
-
-   internal class ValueResultNode : ResultNode
-   {
-      public Object Value;
-   }
-
-   internal static class _ExpressionExtensions
-   {
-      public static ConstantExpression AsInt32(this Expression e)
+      public class Compiler : SyntaxVisitor<Expression>
       {
-         if (!(e is ConstantExpression))
-            throw new InvalidOperationException("....");
-         return Expression.Constant(Convert.ToInt32(((ConstantExpression)e).Value));
+         protected SimpleMath mMath;
+
+         public Compiler(SimpleMath pParser)
+         {
+            mMath = pParser;
+         }
+
+         public Expression Compile(SyntaxNode pGraph)
+         {
+            return new SimplifyingVisitor().Simplify(pGraph).Accept(this);
+         }
+
+         public override Expression Visit(ProductionSyntaxNode pNode)
+         {
+            //if (pNode.Production == mMath.Multiplication)
+            //{
+               
+            //}
+
+            //if (pNode.Production == mMath.Expr)
+            //{
+            //   Expression tLeft = pNode.Children[0].Accept(this);
+
+            //   if (pNode.Children.Length == 1)
+            //      return tLeft;
+
+            //   return Expression.Add(tLeft, pNode.Children[2].Accept(this));
+            //}
+
+            //if (pNode.Production == mMath.Constant)
+            //{
+            //   String tNum = "";
+            //   foreach (ValueSyntaxNode tNode in pNode.Children)
+            //      tNum = tNum + (String)tNode.Value;
+            //   return Expression.Constant(Int32.Parse(tNum));
+            //}
+
+            //if (pNode.Production == mMath.Factor)
+            //{
+            //   if ((String)pNode.Children[0].Value == "(")
+            //   {
+            //      return pNode.Children[1].Accept(this);
+            //   }
+            //   else
+            //      return pNode.Children[0].Accept(this);
+            //}
+
+            throw new InvalidOperationException();
+         }
       }
    }
-
-   //internal class TmpGrammar : TestParser
-   //{
-   //   protected override void DefineGrammar()
-   //   {
-   //      ParseNode A = null, B = null, C = null, D = null;
-
-   //      Root = Rule(() => A);
-   //      A = Rule(() => B.Emit().FollowedBy(C).Or(D.Emit())).Emit(n => new );
-   //   }
-   //}
 
    [TestClass]
    public class ParserGeneratorTests
    {
+      [TestMethod]
+      public void TestMath()
+      {
+         ParserBase tParser = new SimpleMath().Build();
+         SyntaxNode tResult = tParser.Parse("1+1");
+
+         Expression tExpr = tResult.Compile();
+
+         Int32 tValue = Expression.Lambda<Func<Int32>>(tExpr).Compile()();
+         Assert.AreEqual(2, tResult);
+
+         
+         //new SimplifyingVisitor().Simplify(tResult).Compile();
+
+         //         Expression tExpr = new SimpleMath.Compiler((SimpleMath)tParser).Compile(tResult.Children[0]); // skin root
+
+         //       Int32 tValue = Expression.Lambda<Func<Int32>>(tExpr).Compile()();
+
+
+         tResult = tParser.Parse("3*1+2");
+         tValue = Expression.Lambda<Func<Int32>>(tResult.Compile()).Compile()();
+         Assert.AreEqual(5, tResult);
+
+         tResult = tParser.Parse("3*(1+2*2)");
+         tValue = Expression.Lambda<Func<Int32>>(tResult.Compile()).Compile()();
+         Assert.AreEqual(15, tResult);
+      }
+
+
       [TestMethod]
       public void TestCircularGrammars()
       {
@@ -285,13 +372,5 @@ namespace XPath2Tests
 
       }
 
-      [TestMethod]
-      public void TestMath()
-      {
-         ParserBase tParser = new SimpleMath().Build();
-         tParser.Parse("1+1");
-         tParser.Parse("3*1+2");
-         tParser.Parse("3*(1+2*2)");
-      }
    }
 }

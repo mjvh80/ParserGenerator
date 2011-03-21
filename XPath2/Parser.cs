@@ -35,6 +35,220 @@ using System.Linq.Expressions;
 
 namespace Parser
 {
+   #region Syntax Node Result Graph Handling
+
+   public abstract class SyntaxVisitor
+   {
+      public virtual void Visit(ChoiceSyntaxNode pNode) { }
+      public virtual void Visit(SequenceSyntaxNode pNode) { }
+      public virtual void Visit(ValueSyntaxNode pNode) { }
+      public virtual void Visit(EofSyntaxNode pNode) { }
+      public virtual void Visit(ProductionSyntaxNode pNode) { }
+      public virtual void Visit(OptionalSyntaxNode pNode) { }
+   }
+
+   public abstract class SyntaxVisitor<V>
+   {
+      public virtual V Visit(ChoiceSyntaxNode pNode) { return default(V); }
+      public virtual V Visit(SequenceSyntaxNode pNode) { return default(V); }
+      public virtual V Visit(ValueSyntaxNode pNode) { return default(V); }
+      public virtual V Visit(EofSyntaxNode pNode) { return default(V); }
+      public virtual V Visit(ProductionSyntaxNode pNode) { return default(V); }
+      public virtual V Visit(OptionalSyntaxNode pNode) { return default(V); }
+   }
+
+   public class SyntaxToStringVisitor : SyntaxVisitor
+   {
+      protected StringBuilder mBuffer = new StringBuilder();
+
+      public override void Visit(ChoiceSyntaxNode pNode)
+      {
+         pNode.Children[0].Accept(this);
+      }
+
+      public override void Visit(OptionalSyntaxNode pNode)
+      {
+         if (pNode.Children != null && pNode.Children.Length > 0)
+         {
+            mBuffer.Append("OPTIONAL(");
+            Boolean tSuffix = false;
+            foreach (SyntaxNode tChild in pNode.Children)
+            {
+               if (tSuffix)
+                  mBuffer.Append(", ");
+
+               Int32 tPrevLen = mBuffer.Length;
+
+               tChild.Accept(this);
+
+               tSuffix = tPrevLen != mBuffer.Length;
+            }
+            mBuffer.Append(")");
+         }
+      }
+
+      public override void Visit(ValueSyntaxNode pNode)
+      {
+         mBuffer.Append("'").Append(pNode.Value.ToString()).Append("'");
+      }
+
+      public override void Visit(EofSyntaxNode pNode)
+      {
+         mBuffer.Append("<<EOF>>");
+      }
+
+      public override void Visit(ProductionSyntaxNode pNode)
+      {
+         mBuffer.Append("(" + (pNode.Name ?? "") + ")").Append("-> ");
+         if (pNode.Children != null && pNode.Children.Length > 0)
+         {
+            Boolean tSuffix = false;
+            foreach (SyntaxNode tChild in pNode.Children.Where(n => n != null))
+            {
+               if (tSuffix)
+                  mBuffer.Append(", ");
+
+               tChild.Accept(this);
+               tSuffix = true;
+            }
+         }
+         else
+            mBuffer.Append(pNode.Value ?? "''");
+      }
+
+      public override void Visit(SequenceSyntaxNode pNode)
+      {
+         mBuffer.Append("FOLLOW(");
+         foreach (SyntaxNode tChild in pNode.Children)
+         {
+            tChild.Accept(this);
+            mBuffer.Append(", ");
+         }
+         mBuffer.Append(")");
+      }
+
+      public override string ToString()
+      {
+         return mBuffer.ToString();
+      }
+   }
+
+   // Result graph.
+   // I have chosen not to reuse ParseNode for these as they serve quite a different purpose.
+   // Also, this makes rewriting easier as it should be straightforward to add such nodes etc.
+   public abstract class SyntaxNode
+   {
+      // Name of node, possibly null.
+      public String Name { get; set; }
+
+      // Children.
+      public SyntaxNode[] Children { get; set; }
+
+      public Object Value;
+
+      public abstract void Accept(SyntaxVisitor pVisitor);
+      public abstract V Accept<V>(SyntaxVisitor<V> pVisitor);
+
+      public Func<SyntaxNode, Expression> Compiler;
+
+      public virtual Expression Compile()
+      {
+         if (Compiler == null)
+            throw new InvalidOperationException("No compiler defined.");
+
+         return Compiler(this);
+      }
+
+      public override string ToString()
+      {
+         SyntaxToStringVisitor tVisitor = new SyntaxToStringVisitor();
+         this.Accept(tVisitor);
+         return tVisitor.ToString();
+      }
+   }
+
+   public class EofSyntaxNode : SyntaxNode 
+   {
+      public override void Accept(SyntaxVisitor pVisitor)
+      {
+         pVisitor.Visit(this);
+      }
+
+      public override V Accept<V>(SyntaxVisitor<V> pVisitor)
+      {
+         return pVisitor.Visit(this);
+      }
+   }
+   
+   public class ProductionSyntaxNode : SyntaxNode 
+   {
+      public ParseNode Production { get; set; }
+
+      public override void Accept(SyntaxVisitor pVisitor)
+      {
+         pVisitor.Visit(this);
+      }
+
+      public override V Accept<V>(SyntaxVisitor<V> pVisitor)
+      {
+         return pVisitor.Visit(this);
+      }
+   }
+   
+   public class ChoiceSyntaxNode : SyntaxNode 
+   {
+      public override void Accept(SyntaxVisitor pVisitor)
+      {
+         pVisitor.Visit(this);
+      }
+
+      public override V Accept<V>(SyntaxVisitor<V> pVisitor)
+      {
+         return pVisitor.Visit(this);
+      }
+   }
+
+   public class SequenceSyntaxNode : SyntaxNode 
+   {
+      public override void Accept(SyntaxVisitor pVisitor)
+      {
+         pVisitor.Visit(this);
+      }
+
+      public override V Accept<V>(SyntaxVisitor<V> pVisitor)
+      {
+         return pVisitor.Visit(this);
+      }
+   }
+   
+   public class OptionalSyntaxNode : SyntaxNode 
+   {
+      public override void Accept(SyntaxVisitor pVisitor)
+      {
+         pVisitor.Visit(this);
+      }
+
+      public override V Accept<V>(SyntaxVisitor<V> pVisitor)
+      {
+         return pVisitor.Visit(this);
+      }
+   }
+
+   public class ValueSyntaxNode : SyntaxNode 
+   {
+      public override void Accept(SyntaxVisitor pVisitor)
+      {
+         pVisitor.Visit(this);
+      }
+
+      public override V Accept<V>(SyntaxVisitor<V> pVisitor)
+      {
+         return pVisitor.Visit(this);
+      }
+   }
+
+#endregion
+
    public class ParseException : Exception
    {
       public ParseException(String msg) : base(msg) { }
@@ -43,6 +257,35 @@ namespace Parser
 
    public static class ParserExtensions
    {
+      public static ParseNode Rewrite(this ParseNode pNode, Func<SyntaxNode, SyntaxNode> pRewriter)
+      {
+         pNode.AddRewriter(pRewriter);
+         return pNode;
+      }
+
+      public static ParseNode Simplify(this ParseNode pNode)
+      {
+         pNode.AddRewriter(n => Simplify(n));
+         return pNode;
+      }
+
+      public static SyntaxNode Simplify(this SyntaxNode pGraph)
+      {
+         return new SimplifyingVisitor().Simplify(pGraph);
+      }
+
+      public static ParseNode SetCompiler(this ParseNode pNode, Func<SyntaxNode, Expression> pCompiler)
+      {
+         // hmm..
+         pNode.Rewrite(n =>
+            {
+               n.Compiler = pCompiler;
+               return n;
+            });
+
+         return pNode;
+      }
+
       //// TODO: check ok
       //// todo: experimental
       //// as we're needing lookahead, we can assume that decision terminals were needed, ie we can call GetDecisionTe..
@@ -242,11 +485,11 @@ namespace Parser
          //return (CurrentToken = str);
       }
 
-      public void Advance(Terminal term)
+      public String Advance(Terminal term)
       {
          AdvanceInterleaved();
 
-         term.AdvanceTerminal(this);
+         String tResult = term.AdvanceTerminal(this);
 
          //if (term is StringTerminal)
          //   Advance(((StringTerminal)term).TerminalString);
@@ -259,6 +502,8 @@ namespace Parser
          //}
 
          AdvanceInterleaved();
+
+         return tResult;
       }
       
       /// <summary>
@@ -313,13 +558,19 @@ namespace Parser
          throw new ParseException("EOF decision terminals needed");
       }
 
-      public override void Parse(ParseContext c)
+      public override SyntaxNode Parse(ParseContext c)
       {
          Debug.Assert(Mode == PrimeMode.Primed);
 
          c.AdvanceInterleaved();
          if (c.Position != c.Expression.Length)
             throw new ParseException("expected end of input at {0}", c.Position.ToString());
+
+         return Rewrite(new EofSyntaxNode()
+         {
+            Children = null,
+            Name = null,
+         });
       }
 
       public override bool LookaheadTerminals(Terminal s, HashSet<Terminal> l)
@@ -407,14 +658,16 @@ namespace Parser
          return node.GetDecisionTerminals();
       }
 
-      public override void Parse(ParseContext c)
+      public override SyntaxNode Parse(ParseContext c)
       {
          //Debug.Assert(Mode == PrimeMode.Primed);
          Debug.Assert(node.IsPrimed());
 
+         List<SyntaxNode> tResult = new List<SyntaxNode>();
+
          // Parse minimal count.
          for (Int32 i = 0; i < requiredCount; i++)
-            node.Parse(c); // simply go in
+            tResult.Add(node.Parse(c)); // simply go in
 
      //    Debug.Assert(this.IsPrimed()); // this would be an error...
 
@@ -427,7 +680,7 @@ namespace Parser
             foreach (GeneralTerminal tTerminal in node.GetDecisionTerminals()) // > todo cache
                if (tTerminal.CanAdvance(c))
                {
-                  node.Parse(c);
+                  tResult.Add(node.Parse(c));
                   goto next;
                }
 
@@ -435,6 +688,11 @@ namespace Parser
 
          next: ;
          }
+
+         return Rewrite(new OptionalSyntaxNode()
+         {
+            Children = tResult.ToArray(),
+         });
       }
 
       public override bool LookaheadTerminals(Terminal s, HashSet<Terminal> termList)
@@ -484,10 +742,16 @@ namespace Parser
          return ((GeneralTerminal)s).SemanticEquals(mTerminal);
       }
 
-      public override void Parse(ParseContext c)
+      public override SyntaxNode Parse(ParseContext c)
       {
          System.Diagnostics.Debug.Assert(this.Mode == PrimeMode.Primed);
-         c.Advance(mTerminal);
+         String tResult = c.Advance(mTerminal);
+
+         return Rewrite(new ValueSyntaxNode()
+         {
+            Children = null,
+            Value = tResult,
+         });
       }
 
       public override string Label
@@ -635,7 +899,7 @@ namespace Parser
          return node.Optional ? node.DoGetDecisionTerminals().Merge(otherNode.DoGetDecisionTerminals()) : node.DoGetDecisionTerminals();
       }
 
-      public override bool ParsesTerminal(Terminal pTerminal)
+      public override Boolean ParsesTerminal(Terminal pTerminal)
       {
          Debug.Assert(Mode == PrimeMode.Primed);
 
@@ -643,12 +907,17 @@ namespace Parser
          return (otherNode.Optional && node.ParsesTerminal(pTerminal)) || (node.Optional && otherNode.ParsesTerminal(pTerminal));
       }
 
-      public override void Parse(ParseContext c)
+      public override SyntaxNode Parse(ParseContext c)
       {
          Debug.Assert(Mode == PrimeMode.Primed);
 
-         node.Parse(c);
-         otherNode.Parse(c);
+         SyntaxNode tLeft = node.Parse(c);
+         SyntaxNode tRight = otherNode.Parse(c);
+
+         return Rewrite(new SequenceSyntaxNode()
+         {
+            Children = new [] { tLeft, tRight },
+         });
       }
 
       public override bool LookaheadTerminals(Terminal s, HashSet<Terminal> termList)
@@ -825,7 +1094,7 @@ namespace Parser
          return mParseTable.ContainsTerminal(s) && mParseTable[s].ParsesTerminal(s);
       }
 
-      public override void Parse(ParseContext c)
+      public override SyntaxNode Parse(ParseContext c)
       {
          // todo: there is a way we can be much more efficient here.
          // instead of looping through the parsetable, we can lift off of .nets regex engine:
@@ -837,11 +1106,16 @@ namespace Parser
             if (tTerminal.CanAdvance(c)) // todo: combine into optAdvance?
             {
                //tTerminal.AdvanceTerminal(c);
-               mParseTable[tTerminal].Parse(c);
-               return;
+               SyntaxNode tResult = mParseTable[tTerminal].Parse(c);
+               return Rewrite(new ChoiceSyntaxNode()
+                  {
+                     Children = new [] { tResult },
+                  }
+               );
             }
 
-         RaiseExpectedTerminals(c, mParseTable.Terminals); 
+         RaiseExpectedTerminals(c, mParseTable.Terminals);
+         throw new InvalidOperationException();
       }
 
       public override bool LookaheadTerminals(Terminal s, HashSet<Terminal> l)
@@ -866,11 +1140,11 @@ namespace Parser
 
    public class SimpleParseNode : ParseNode
    {
-      public Action<ParseContext> ParseDelegate;
+      public Func<ParseContext, SyntaxNode> ParseDelegate;
 
-      public override void Parse(ParseContext c)
+      public override SyntaxNode Parse(ParseContext c)
       {
-         ParseDelegate(c);
+         return Rewrite(ParseDelegate(c));
       }
 
       public Func<Terminal[]> GetDecisionTerminalsDelegate;
@@ -893,8 +1167,8 @@ namespace Parser
       }
       
       public abstract Terminal[] GetDecisionTerminals();
-      
-      public abstract void Parse(ParseContext c);
+
+      public abstract SyntaxNode Parse(ParseContext c);
 
       // return true if route is exhausted, false otherwise
       public virtual Boolean LookaheadTerminals(Terminal s, HashSet<Terminal> l)
@@ -989,9 +1263,18 @@ namespace Parser
          throw new ParseException("expected one of '{0}', found '{1}'", String.Join(", ", terminals), String.Join<Terminal>(" or ", terminals)); // todo
       }
 
-      public ParseNode Emit(Func<IEnumerable<Expression>, Expression> emitter)
+      protected SyntaxNode Rewrite(SyntaxNode pNode)
       {
-         throw new NotImplementedException("this is just a try");
+         return mRewriter == null ? pNode : mRewriter(pNode);
+      }
+      
+      protected Func<SyntaxNode, SyntaxNode> mRewriter;
+
+      internal ParseNode AddRewriter(Func<SyntaxNode, SyntaxNode> pRewriter)
+      {
+         //mRewriter = pRewriter;
+         mRewriter += pRewriter;
+         return this;
       }
    }
 
@@ -1113,7 +1396,7 @@ namespace Parser
          return tResult;
       }
 
-      public override void Parse(ParseContext c)
+      public override SyntaxNode Parse(ParseContext c)
       {
          // todo: build large, single .NET regex to do our heavy lifting
          // ie (?<production>...) | (?<other_production>...) etc.
@@ -1148,8 +1431,7 @@ namespace Parser
 
                         // NOW we're in business.
                         c.Position = tPosition; // reset for actual parsing (todo: this is a shame)
-                        tPair.Right.Parse(c);
-                        return; // gtfo
+                        return tPair.Right.Parse(c); // gtfo
                      }
 
                // Failure, reset position, try next terminal.
@@ -1160,8 +1442,7 @@ namespace Parser
          // If there was no acceptable route, move into the default route, if there is one.
          if (tDefaultNode != null)
          {
-            tDefaultNode.Parse(c);
-            return;
+            return tDefaultNode.Parse(c);
          }
 
          throw new ParseException("parse error"); // todo: improve error -> how, maybe name terminals (defaulting to strings?, reflection?)
@@ -1172,13 +1453,16 @@ namespace Parser
    {
       protected ParseNode mNode;
       protected Func<ParseNode> mNodeGenerator;
+      protected String mName;
 
-      public ProductionNode(Func<ParseNode> lazy)
+      public ProductionNode(Func<ParseNode> lazy) : this(null, lazy)
+      { }
+
+      public ProductionNode(String pName, Func<ParseNode> lazy)
       {
          mNodeGenerator = lazy;
-
+         mName = pName; // todo: check uniqueness of name
          Label = "PRODUCTION"; // todo?
-
       }
 
       internal override bool DerivesExclusivelyTo(ParseNode pNode)
@@ -1229,10 +1513,18 @@ namespace Parser
          return mNode.GetDecisionTerminals();
       }
 
-      public override void Parse(ParseContext c)
+      public override SyntaxNode Parse(ParseContext c)
       {
          Debug.Assert(Mode == PrimeMode.Primed);
-         mNode.Parse(c);
+
+         SyntaxNode tResult = mNode.Parse(c);
+
+         return Rewrite( new ProductionSyntaxNode()
+         {
+            Production = this,
+            Children = new[] { tResult },
+            Name = mName,
+         } );
       }
 
       public override bool ParsesTerminal(Terminal pTerminal)
@@ -1482,6 +1774,28 @@ namespace Parser
          return tNode;
       }
 
+      protected ParseNode Define(String name, Func<ParseNode> definition)
+      {
+         ProductionNode tNode = new ProductionNode(name, definition);
+         _mPrimeTargets.Add(tNode);
+         return tNode;
+      }
+
+      // todo: force this to be the way, avoids having to set null everywhere, makes compiler detect unused vars etc!
+      // > unfortunately, can still not reference variables in the definition unless initialized..
+      protected ParseNode Define(out ParseNode target, String name, Func<ParseNode> definition)
+      {
+         ProductionNode tNode = new ProductionNode(name, definition);
+         _mPrimeTargets.Add(tNode);
+         target = tNode;
+         return tNode;
+      }
+
+      protected void Define(out ParseNode target, Func<ParseNode> definition)
+      {
+         Define(out target, null, definition);
+      }
+
       protected abstract void DefineGrammar();
 
       protected abstract ParseContext GetContext();
@@ -1525,13 +1839,12 @@ namespace Parser
       }
 
       // todo: this has gotta return something, ehm
-      public void Parse(String expression)
+      public SyntaxNode Parse(String expression)
       {
          ParseContext tContext = GetContext();
          tContext.Expression = expression; // todo: should pass to ctor i think
 
-         // todo: should return later
-         Root.Parse(tContext);
+         return Root.Parse(tContext);
       }
    }
 }

@@ -125,8 +125,12 @@ namespace SimpleConsoleTests
                   return;
 
                tTimer = System.Diagnostics.Stopwatch.StartNew();
-               tParser.Parse(tLine);
+               SyntaxNode tResult = tParser.Parse(tLine);
                Console.WriteLine("OK in {0}ms", tTimer.ElapsedMilliseconds);
+               Console.WriteLine("Result:");
+               SyntaxToStringVisitor tVisitor = new SyntaxToStringVisitor();
+               tResult.Accept(tVisitor);
+               Console.WriteLine(tVisitor.ToString());
             }
             catch (Exception e)
             {
