@@ -5,7 +5,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleCC", "SimpleCC.csproj
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XPath2", "..\XPath2\XPath2.csproj", "{6B578367-98D5-4231-AD46-80759ED8EE72}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XPath2Tests", "XPath2Tests\XPath2Tests.csproj", "{0789B360-0AD7-476E-9901-2142FE855E81}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleCCTests", "XPath2Tests\SimpleCCTests.csproj", "{0789B360-0AD7-476E-9901-2142FE855E81}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{41E72DC2-28DF-4019-B8FD-209D0BB0D01A}"
 	ProjectSection(SolutionItems) = preProject

@@ -3,7 +3,7 @@ using System.Text;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Parser;
+using SimpleCC;
 using System.Linq.Expressions;
 using XPath2;
 
@@ -168,14 +168,11 @@ namespace XPath2Tests
          Root.Rewrite(n => new FlatteningVisitor().Flatten((ProductionSyntaxNode)n));
 
          // Rewrite constants to return digits, and set compiler.
-         Constant.Rewrite(n =>
+         Constant.FlattenProduction().Rewrite(n =>
             {
                String tNumber = "";
-               if (n.Children == null)
-                  tNumber = (String)n.Value;
-               else
-                  foreach (SyntaxNode tValue in n.Children)
-                     tNumber = tNumber + (String)tValue.Value;
+               foreach (SyntaxNode tValue in n.Children)
+                  tNumber = tNumber + (String)tValue.Children[0].Value;
 
                return new ValueSyntaxNode()
                {
@@ -219,58 +216,6 @@ namespace XPath2Tests
 
       }
 
-      public class Compiler : SyntaxVisitor<Expression>
-      {
-         protected SimpleMath mMath;
-
-         public Compiler(SimpleMath pParser)
-         {
-            mMath = pParser;
-         }
-
-         public Expression Compile(SyntaxNode pGraph)
-         {
-            return new SimplifyingVisitor().Simplify(pGraph).Accept(this);
-         }
-
-         public override Expression Visit(ProductionSyntaxNode pNode)
-         {
-            //if (pNode.Production == mMath.Multiplication)
-            //{
-               
-            //}
-
-            //if (pNode.Production == mMath.Expr)
-            //{
-            //   Expression tLeft = pNode.Children[0].Accept(this);
-
-            //   if (pNode.Children.Length == 1)
-            //      return tLeft;
-
-            //   return Expression.Add(tLeft, pNode.Children[2].Accept(this));
-            //}
-
-            //if (pNode.Production == mMath.Constant)
-            //{
-            //   String tNum = "";
-            //   foreach (ValueSyntaxNode tNode in pNode.Children)
-            //      tNum = tNum + (String)tNode.Value;
-            //   return Expression.Constant(Int32.Parse(tNum));
-            //}
-
-            //if (pNode.Production == mMath.Factor)
-            //{
-            //   if ((String)pNode.Children[0].Value == "(")
-            //   {
-            //      return pNode.Children[1].Accept(this);
-            //   }
-            //   else
-            //      return pNode.Children[0].Accept(this);
-            //}
-
-            throw new InvalidOperationException();
-         }
-      }
    }
 
    [TestClass]
@@ -285,7 +230,7 @@ namespace XPath2Tests
          Expression tExpr = tResult.Compile();
 
          Int32 tValue = Expression.Lambda<Func<Int32>>(tExpr).Compile()();
-         Assert.AreEqual(2, tResult);
+         Assert.AreEqual(2, tValue);
 
          
          //new SimplifyingVisitor().Simplify(tResult).Compile();
@@ -297,11 +242,11 @@ namespace XPath2Tests
 
          tResult = tParser.Parse("3*1+2");
          tValue = Expression.Lambda<Func<Int32>>(tResult.Compile()).Compile()();
-         Assert.AreEqual(5, tResult);
+         Assert.AreEqual(5, tValue);
 
          tResult = tParser.Parse("3*(1+2*2)");
          tValue = Expression.Lambda<Func<Int32>>(tResult.Compile()).Compile()();
-         Assert.AreEqual(15, tResult);
+         Assert.AreEqual(15, tValue);
       }
 
 

@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Diagnostics;
 
 // haskell port to c#
 
@@ -46,6 +47,9 @@ namespace SimpleRegexIntersector
             set.Add(tItem);
       }
 
+      /// <summary>
+      /// Deduplicates the array.
+      /// </summary>
       public static T[] Nub<T>(this T[] array)
       {
          // for now, naive implementation
@@ -61,6 +65,9 @@ namespace SimpleRegexIntersector
          }
       }
 
+      /// <summary>
+      /// Deduplicates the given list.
+      /// </summary>
       public static List<T> Nub<T>(this List<T> list)
       {
          // for now, naive implementation
@@ -102,29 +109,59 @@ namespace SimpleRegexIntersector
    // ^: match start of input: requires no work, just ensure with parsing that ^ can not occur as char
    // $: match end of input: - " -
 
+   /// <summary>
+   /// Represents a .NET regular expression, but then a more "simple" one, so not all syntax supported and it doesn't perform
+   /// any matching. It provides functionality such as:
+   /// - testing equivalence of regular expressions
+   /// - testing whether they share a common prefix (ie would match the same prefix string in all its input).
+   /// Class is immutable so operations such as Negate etc. returns copies (in this case a regular expression that matches anything
+   /// this one does not).
+   /// </summary>
    public abstract class SimpleRegex
    {
-      public static SimpleRegex Empty = new EmptyRegex();
-      public static SimpleRegex Zero = new ZeroRegex();
-      public static SimpleRegex Complete = new CompleteRegex();
+      ///<summary>Matches the empty string.</summary> 
+      internal static SimpleRegex Empty = new EmptyRegex();
+
+      ///<summary>Matches nothing.</summary>
+      internal static SimpleRegex Zero = new ZeroRegex();
+
+      /// <summary>
+      /// Matches everything (.).
+      /// </summary>
+      internal static SimpleRegex Complete = new CompleteRegex();
+
+      // todo: this should be internal, can't be bothered for now
+      public Boolean Rewritten { get; set; }
 
       /// <summary>
       /// Returns, for regex f, the set { p | (x, p) in linear forms of f }.
       /// </summary>
       /// <param name="c"></param>
       /// <returns></returns>
-      public abstract HashSet<SimpleRegex> PartialDeriv(Char c);
-      public abstract Char[] Sigma();
-      public abstract Boolean IsEmpty();
-      public abstract Boolean IsZero();
+      internal abstract HashSet<SimpleRegex> PartialDeriv(Char c);
+      internal abstract Char[] Sigma();
+      internal abstract Boolean IsEmpty();
+      internal abstract Boolean IsZero();
 
-      // Return negation of self, in terms of others.
-      public abstract SimpleRegex Negate();
+      /// <summary>
+      /// Clones this regex.
+      /// </summary>
+      /// <returns></returns>
+      public abstract SimpleRegex Clone();
 
-      // Util for rewriting the tree.
+      /// <summary>
+      /// Returns a regex that is negated, so matches whatever this does not match.
+      /// Current regex is *not* affected, a copy is always returned.
+      /// </summary>
+      /// <returns></returns>
+      internal abstract SimpleRegex Negate();
+
+      // Util for rewriting the tree. todo: should provide viistor instead?
       public abstract SimpleRegex Apply(Func<SimpleRegex, SimpleRegex> f);
       
-      public static Pair Pair(SimpleRegex left, SimpleRegex right) { return new Pair() { Left = left, Right = right }; }
+      // Helpers to combine regexes. Note: no cloning is preformed (!).
+      internal static Pair Pair(SimpleRegex left, SimpleRegex right) { return new Pair() { Left = left, Right = right }; }
+      
       public static ChoiceRegex Choice(SimpleRegex left, SimpleRegex right) { return new ChoiceRegex() { Left = left, Right = right }; }
       public static KleeneRegex Star(SimpleRegex op) { return new KleeneRegex() { Operand = op }; }
       public static SeqRegex Sequence(SimpleRegex left, SimpleRegex right) { return new SeqRegex() { Left = left, Right = right }; }
@@ -154,22 +191,51 @@ namespace SimpleRegexIntersector
        * 
        * r -> Seq(star r1) r2 => r1* r2
        */
-      public abstract Pair ConvertInternal(Int32 x);
-      public abstract Boolean Contains(Int32 x);
+      internal abstract Pair ConvertInternal(Int32 x);
+      internal abstract Boolean Contains(Int32 x);
 
-      public SimpleRegex Convert(Int32 x)
-      {
+      // Internally call ConvertInternal, which returns a pair.
+      // If the regex does not contain x, this will return { empty, this }.
+      // This then returns empty* this = this.
+      //
+      // This solves a fixed point equation. Given two regexes A, B: A intersect B = x = f(x).
+      // 
+      // a x -> (a empty)* empty* -> a*, a x = x = a+
+      internal SimpleRegex Convert(Int32 x)
+      {  
          Pair tConversion = this.ConvertInternal(x);
          return Sequence(Star(tConversion.Left), tConversion.Right);
       }
 
+      ///// <summary>
+      ///// Public method to create a choice regex. Clones all regexes in the list.
+      ///// </summary>
+      ///// <param name="pList"></param>
+      ///// <param name="others"></param>
+      ///// <returns></returns>
+      //public static SimpleRegex NewChoice(IEnumerable<SimpleRegex> pList, params SimpleRegex[] others)
+      //{
+      //   return ToRegex(pList.Union(others).Select(n => n.Clone()).GetEnumerator());
+      //}
+
+      /// <summary>
+      /// Internal method to create a choice, does not clone.
+      /// </summary>
+      /// <remarks>Does not clone. Should not need to, as it should not change its children.</remarks>
       public static SimpleRegex Choice(IEnumerable<SimpleRegex> pList, params SimpleRegex[] others)
       {
          //return ToRegex(pList.GetEnumerator());
          return ToRegex((pList.Union(others).GetEnumerator()));
       }
 
-      public static SimpleRegex ToRegex(IEnumerator<SimpleRegex> pList)
+      /// <summary>
+      /// If list is empty, returns Zero. Otherwise returns a choice of the list, finally terminated with Zero (!).
+      /// Thus, this is always "terminated" with Zero.
+      /// Performs no cloning, internal method.
+      /// </summary>
+      /// <param name="pList"></param>
+      /// <returns></returns>
+      internal static SimpleRegex ToRegex(IEnumerator<SimpleRegex> pList)
       {
          if (pList.MoveNext())
             return Choice(pList.Current, ToRegex(pList));
@@ -177,41 +243,59 @@ namespace SimpleRegexIntersector
             return Zero;
       }
 
-      // Performs a rewrite and intersects.
+      /// <summary>
+      /// Determines whether the given regexes intersect, internally performs a rewrite.
+      /// </summary>
+      // todo: should just be called Intersect
       public static Boolean RewritesIntersect(SimpleRegex left, SimpleRegex right)
       {
-         SimpleRegex.Rewrite(ref left, ref right);
+         SimpleRegex.CloneAndRewrite(ref left, ref right);
          return left.Intersects(right);
       }
 
+      /// <summary>
+      /// Determines whether given regexes are equal (rewrites internally).
+      /// </summary>
+      /// <param name="left"></param>
+      /// <param name="right"></param>
+      /// <returns></returns>
+      // todo: rename to Equal
       public static Boolean RewritesEqual(SimpleRegex left, SimpleRegex right)
       {
-         SimpleRegex.Rewrite(ref left, ref right);
-         return left.SemanticEquals(right);
+         SimpleRegex.CloneAndRewrite(ref left, ref right);
+         return left.SemanticEquals(new HashSet<Pair>(), right);
+         //return left.SemanticEquals(right);
       }
 
+      /// <summary>
+      /// Determines if the given regexes share a common prefix. Internally clones and rewrites.
+      /// </summary>
+      /// <param name="left"></param>
+      /// <param name="right"></param>
+      /// <returns></returns>
       public static Boolean RewritesCommonPrefix(SimpleRegex left, SimpleRegex right)
       {
-         SimpleRegex.Rewrite(ref left, ref right);
+         SimpleRegex.CloneAndRewrite(ref left, ref right);
          return left.SharesCommonPrefixWith(right);
       }
 
       // todo: compare a|b with b|a gives error...
-      public Boolean Intersects(SimpleRegex other)
+      // note: does not rewrite, and can change the 
+      internal Boolean Intersects(SimpleRegex other)
       {
          // Second change to MS' code: compare with Zero as well:
          SimpleRegex tIntersection = this.Intersect(new Dictionary<Pair, SimpleRegex>(), 0, other);
          return !(Empty.SemanticEquals(tIntersection) || Zero.SemanticEquals(tIntersection));
       }
 
-      public Boolean SharesCommonPrefixWith(SimpleRegex other)
+      internal Boolean SharesCommonPrefixWith(SimpleRegex other)
       {
          // Second change to MS' code: compare with Zero as well:
          SimpleRegex tPrefixIntersection = this.GetCommonPrefix(new Dictionary<Pair, SimpleRegex>(), 0, other);
          return !(Empty.SemanticEquals(tPrefixIntersection) || Zero.SemanticEquals(tPrefixIntersection));
       }
 
-      public SimpleRegex Intersect(Dictionary<Pair, SimpleRegex> env, Int32 x, SimpleRegex r2)
+      internal SimpleRegex Intersect(Dictionary<Pair, SimpleRegex> env, Int32 x, SimpleRegex r2)
       {
          if (this == Zero || r2 == Zero)
             return Zero;
@@ -240,14 +324,16 @@ namespace SimpleRegexIntersector
             else
                tFinal = Choice(tResult);
 
-            // Remove the regex for this recursion level. Adjust M.S. algorithm.
+            // Remove the regex for this recursion level. Adjusts M.S. algorithm.
             env.Remove(Pair(this, r2));
+
+            // Convert and return ("solves" for the regex variables).
             return tFinal.Convert(x);
          }
       }
 
       // R = A B
-      public SimpleRegex GetCommonPrefix(Dictionary<Pair, SimpleRegex> env, Int32 x, SimpleRegex r2)
+      internal SimpleRegex GetCommonPrefix(Dictionary<Pair, SimpleRegex> env, Int32 x, SimpleRegex r2)
       {
          // If any one is empty/zero, we should stop processing: we found our prefix.
          // Return empty, so that the prefix found does not match zero.
@@ -315,7 +401,7 @@ namespace SimpleRegexIntersector
 
       public Int32 EqualsConsistentHashCode()
       {
-         return EqualsConsistentHashCode(new Dictionary<SimpleRegex, Int32>(), 1);
+         return Clone().Rewrite().EqualsConsistentHashCode(new Dictionary<SimpleRegex, Int32>(), 1);
       }
 
       // Every regex is:
@@ -350,7 +436,7 @@ namespace SimpleRegexIntersector
 
       public Boolean SemanticEquals(SimpleRegex other)
       {
-         return SemanticEquals(new HashSet<Pair>(), other);
+         return Clone().SemanticEquals(new HashSet<Pair>(), other.Clone());
       }
 
       protected static Char Min(Char left, Char right)
@@ -448,19 +534,25 @@ namespace SimpleRegexIntersector
       }
 
       // Rewrites both in the same "context".
-      public static void Rewrite(ref SimpleRegex left, ref SimpleRegex right)
+      // Returns *new* regular expressions.
+      public static void CloneAndRewrite(ref SimpleRegex left, ref SimpleRegex right)
       {
          // for now, simply create a choice, this may not suffice if we ever decide to do more
          // clever rewriting, eg by optimizing the tree
-         SimpleRegex tResult = Choice(left, right).Rewrite();
+         SimpleRegex tResult = Choice(left.Clone(), right.Clone()).Rewrite();
          left = ((ChoiceRegex)tResult).Left;
          right = ((ChoiceRegex)tResult).Right;
       }
 
       // Rewriting support for ranges and negation.
-      public SimpleRegex Rewrite()
+      // Does not clone, changes tree.
+      // todo: instead, clone here rather than above?
+      internal SimpleRegex Rewrite()
       {
          SimpleRegex tResult = this;
+
+         if (tResult.Rewritten)
+            throw new InvalidOperationException("Regular expression already rewritten.");
 
          HashSet<Char> tUsedSet = new HashSet<char>();
          tUsedSet.AddRange(tResult.Sigma());
@@ -542,7 +634,7 @@ namespace SimpleRegexIntersector
          tUsedSet.AddRange(tResult.Sigma());
 
          // Rewrite all negations, and complete regexes (dot) using the magic marker.
-         Char tMagicMarker = 'Z'; // '\uFADE';
+         Char tMagicMarker = '\uFADE';
 
          // 1. Rewrite Complete regex:
          // . = toregex(used_chars)
@@ -575,6 +667,7 @@ namespace SimpleRegexIntersector
             return r;
          });
 
+         tResult.Rewritten = true;
          return tResult;
       }
 
@@ -719,13 +812,24 @@ namespace SimpleRegexIntersector
          }
       }
 
+      //protected static readonly Char[] RegexChars = new[] { '[', ']', '(', ')', '^', '.', '{', '}', '*', '+', '-', '?', '|', '&', '\\' };
+
+      // obviously this thing aint readonly
+      protected static readonly HashSet<Char> RegexChars = new HashSet<char>()
+      {
+         '[', ']', '(', ')', '^', '.', '{', '}', '*', '+', '-', '?', '|', '&', '\\', '$'
+      };
+
       // Support escaping.
       protected static Char ReadLetter(String expr, ref Int32 pos)
       {
          if (expr[pos] == '\\')
          {
             pos += 1;
-            // allow the character "as is"
+
+            if (!RegexChars.Contains(expr[pos]))
+               throw new Exception(String.Format("Invalid escaped character: '{0}'.", expr[pos]));
+
             return expr[pos++];
          }
          else
@@ -734,11 +838,68 @@ namespace SimpleRegexIntersector
 
       protected static Char ValidateLetter(Char c)
       {
-         HashSet<Char> tSyntaxSet = new HashSet<char>();
-         tSyntaxSet.AddRange(new [] { '[', ']', '(', ')', '^', '.', '{', '}', '*', '+', '-', '?', '|', '&', '\\' }); // todo dont regen
-         if (tSyntaxSet.Contains(c))
+         // todo: do this properly
+         //HashSet<Char> tSyntaxSet = new HashSet<char>();
+         //tSyntaxSet.AddRange(RegexChars);
+         //if (tSyntaxSet.Contains(c))
+         if (RegexChars.Contains(c))
             throw new Exception(String.Format("Letter '{0}' is part of regex syntax.", c.ToString()));
          return c;
+      }
+
+      public static String Escape(String pString)
+      {
+         if (String.IsNullOrEmpty(pString))
+            return pString;
+
+         StringBuilder tResult = new StringBuilder((Int32)(pString.Length * 1.1)); // todo: good heuristic?
+         for (Int32 i = 0; i < pString.Length; i++)
+         {
+            Char tChar = pString[i];
+
+            if (RegexChars.Contains(tChar))
+               tResult.Append('\\');
+            
+            tResult.Append(tChar);
+         }
+         return tResult.ToString();
+      }
+
+      public static String Unescape(String pString)
+      {
+         if (String.IsNullOrEmpty(pString))
+            return pString;
+
+         StringBuilder tResult = new StringBuilder(pString.Length); // less?
+
+         for (Int32 i = 0; i < pString.Length; i++)
+         {
+            Char tChar = pString[i];
+
+            if (tChar == '\\')
+            {
+               i += 1;
+
+               if (i == pString.Length)
+                  throw new Exception("Escape character \\ at end of string.");
+
+               tChar = pString[i];
+
+               if (!RegexChars.Contains(tChar))
+                  throw new Exception(String.Format("Character '{0}' cannot be escaped.", pString[i]));
+
+               tResult.Append(tChar);
+            }
+            else
+            {
+               if (RegexChars.Contains(tChar))
+                  throw new Exception(String.Format("Character '{0}' must be escaped.", pString[i]));
+
+               tResult.Append(tChar);
+            }
+         }
+
+         return tResult.ToString();
       }
 
       protected static SimpleRegex Parse_Set(String expr, ref Int32 pos)
@@ -775,8 +936,6 @@ namespace SimpleRegexIntersector
          return tNegate ? tResult.Negate() : tResult;
       }
 
-
-
       #endregion
    }
 
@@ -784,7 +943,7 @@ namespace SimpleRegexIntersector
    {
       public Int32 Value;
 
-      public override Pair ConvertInternal(int x)
+      internal override Pair ConvertInternal(int x)
       {
          if (x == Value)
             return Pair(Empty, Empty); // remove
@@ -792,27 +951,32 @@ namespace SimpleRegexIntersector
             return Pair(Empty, this);  // keep it
       }
 
-      public override bool Contains(int x)
+      internal override bool Contains(int x)
       {
          return x == Value;
       }
 
-      public override HashSet<SimpleRegex> PartialDeriv(char c)
+      public override SimpleRegex Clone()
+      {
+         return new VarRegex { Value = this.Value };
+      }
+
+      internal override HashSet<SimpleRegex> PartialDeriv(char c)
       {
          throw new InvalidOperationException();
       }
 
-      public override bool IsEmpty()
+      internal override bool IsEmpty()
       {
          throw new InvalidOperationException();
       }
 
-      public override bool IsZero()
+      internal override bool IsZero()
       {
          throw new NotImplementedException();
       }
 
-      public override char[] Sigma()
+      internal override char[] Sigma()
       {
          throw new NotImplementedException();
       }
@@ -838,7 +1002,11 @@ namespace SimpleRegexIntersector
          return Value;
       }
 
-      public override SimpleRegex Negate()
+      /// <summary>
+      /// Placeholder regex ("variable"), negating makes no sense and is an invalid operation were it to occur.
+      /// </summary>
+      /// <returns></returns>
+      internal override SimpleRegex Negate()
       {
          throw new InvalidOperationException();
       }
@@ -855,12 +1023,17 @@ namespace SimpleRegexIntersector
          return f(this);
       }
 
-      public override bool Contains(int x)
+      public override SimpleRegex Clone()
+      {
+         return new AndRegex { Left = this.Left.Clone(), Right = this.Right.Clone() };
+      }
+
+      internal override bool Contains(int x)
       {
          return Left.Contains(x) || Right.Contains(x);
       }
 
-      public override Pair ConvertInternal(int x)
+      internal override Pair ConvertInternal(int x)
       {
          return Pair(Empty, this); // todo: must figure out what convert does, is this correct?
       }
@@ -876,31 +1049,31 @@ namespace SimpleRegexIntersector
          return ~(Left.GetHashCode() ^ Right.GetHashCode());
       }
 
-      public override bool IsEmpty()
+      internal override bool IsEmpty()
       {
          return Left.IsEmpty() && Right.IsEmpty();
       }
 
-      public override bool IsZero()
+      internal override bool IsZero()
       {
          return Left.IsZero() || Right.IsZero();
       }
 
       // not (A & B) -> not(A) | not(B)
-      public override SimpleRegex Negate()
+      internal override SimpleRegex Negate()
       {
          return Choice(Left.Negate(), Right.Negate());
       }
 
       // returns p(left, c) INTERSECT p(right, c)
-      public override HashSet<SimpleRegex> PartialDeriv(char c)
+      internal override HashSet<SimpleRegex> PartialDeriv(char c)
       {
          HashSet<SimpleRegex> tResult = Left.PartialDeriv(c);
          tResult.IntersectWith(Right.PartialDeriv(c));
          return tResult;
       }
 
-      public override char[] Sigma()
+      internal override char[] Sigma()
       {
          return Left.Sigma().Merge(Right.Sigma());
       }
@@ -915,12 +1088,17 @@ namespace SimpleRegexIntersector
    {
       public SimpleRegex Left, Right;
 
-      public override bool Contains(int x)
+      internal override bool Contains(int x)
       {
          return Left.Contains(x) || Right.Contains(x);
       }
 
-      public override HashSet<SimpleRegex> PartialDeriv(Char c)
+      public override SimpleRegex Clone()
+      {
+         return new ChoiceRegex() { Left = this.Left.Clone(), Right = this.Right.Clone() };
+      }
+
+      internal override HashSet<SimpleRegex> PartialDeriv(Char c)
       {
          return Left.PartialDeriv(c).Merge(Right.PartialDeriv(c));
          //var tLeftDerivs = Left.PartialDeriv(c);
@@ -929,24 +1107,35 @@ namespace SimpleRegexIntersector
          //return tLeftDerivs.Nub();
       }
 
-      public override Pair ConvertInternal(int x)
+      // Converts left, converts right (left' and right') then returns:
+      //
+      // { left'.left | right'.left , left'.right | right'.right }
+      //
+      // If neither left nor right contains x, left' = { empty, left }
+      // and right' = { empty, right }.
+      // Then Choice(left'.left, right'.left) = Choice(empty, empty) = empty.
+      // Then Choice(left'.right, right'.right) = Choice(left, right) = this.
+      // => we're returning { empty, this }
+      // 
+      internal override Pair ConvertInternal(int x)
       {
+         // todo: if neither left nor right contains x, we should return empty instead of choice(empty, empty).
          Pair tConvLeft = Left.ConvertInternal(x);
          Pair tConvRight = Right.ConvertInternal(x);
          return Pair(Choice(tConvLeft.Left, tConvRight.Left), Choice(tConvLeft.Right, tConvRight.Right));
       }
 
-      public override char[] Sigma()
+      internal override char[] Sigma()
       {
          return Left.Sigma().Merge(Right.Sigma()).Nub(); // todo: can do merge/nub in one go
       }
 
-      public override bool IsZero()
+      internal override bool IsZero()
       {
          return Left.IsZero() && Right.IsZero();
       }
 
-      public override bool IsEmpty()
+      internal override bool IsEmpty()
       {
          return Left.IsEmpty() || Right.IsEmpty();
       }
@@ -976,7 +1165,7 @@ namespace SimpleRegexIntersector
 
       // not(A | B) -> not(A) & not(B)
       // verify: not(not(A) & not(B)) = not(not(A)) | not(not(B))
-      public override SimpleRegex Negate()
+      internal override SimpleRegex Negate()
       {
          return And(Left.Negate(), Right.Negate());
       }
@@ -986,20 +1175,26 @@ namespace SimpleRegexIntersector
    {
       public Char Letter;
 
-      public override HashSet<SimpleRegex> PartialDeriv(Char c)
+      internal override HashSet<SimpleRegex> PartialDeriv(Char c)
       {
          if (c == Letter)
             return new HashSet<SimpleRegex>() { SimpleRegex.Empty };
          else
-            return new HashSet<SimpleRegex>();
+            return new HashSet<SimpleRegex>(); // todo: can we use a single instance?
       }
 
-      public override bool Contains(int x)
+      public override SimpleRegex Clone()
+      {
+         return new LetterRegex() { Letter = this.Letter };
+      }
+
+      internal override bool Contains(int x)
       {
          return false;
       }
 
-      public override Pair ConvertInternal(int x)
+      // Does not contain the variable, so return { empty, this }.
+      internal override Pair ConvertInternal(int x)
       {
          return Pair(Empty, this);
       }
@@ -1009,17 +1204,17 @@ namespace SimpleRegexIntersector
          return Letter.ToString();
       }
 
-      public override bool IsEmpty()
+      internal override bool IsEmpty()
       {
          return false;
       }
 
-      public override bool IsZero()
+      internal override bool IsZero()
       {
          return false;
       }
 
-      public override char[] Sigma()
+      internal override char[] Sigma()
       {
          return new Char[] { Letter };
       }
@@ -1043,7 +1238,7 @@ namespace SimpleRegexIntersector
       // returns not(a)
       // not(a) = n(a) | e
       // not(n(a) | e) = a & not(e) = a
-      public override SimpleRegex Negate()
+      internal override SimpleRegex Negate()
       {
          //return Choice(Empty, new NegatedLetterRegex() { Letter = this.Letter });
          return NegatedLetter(this.Letter);
@@ -1060,7 +1255,7 @@ namespace SimpleRegexIntersector
       // p(not(a)) = p(b | c | ...) = p(b) | p(c) | ... 
       //   = empty set if x = a
       //   = p(x) = empty
-      public override HashSet<SimpleRegex> PartialDeriv(char c)
+      internal override HashSet<SimpleRegex> PartialDeriv(char c)
       {
          if (c == Letter)
             return new HashSet<SimpleRegex>(); // empty set
@@ -1068,12 +1263,18 @@ namespace SimpleRegexIntersector
             return new HashSet<SimpleRegex>() { Empty };
       }
 
-      public override bool Contains(int x)
+      public override SimpleRegex Clone()
+      {
+         return new NegatedLetterRegex() { Letter = this.Letter };
+      }
+
+      internal override bool Contains(int x)
       {
          return false;
       }
 
-      public override Pair ConvertInternal(int x)
+      // Does not contain letter, so returns { empty, this }.
+      internal override Pair ConvertInternal(int x)
       {
          return Pair(Empty, this); // todo...
       }
@@ -1089,17 +1290,17 @@ namespace SimpleRegexIntersector
          return ~Letter.GetHashCode(); // opposite of what we get for LetterRegex
       }
 
-      public override bool IsEmpty()
+      internal override bool IsEmpty()
       {
          return false;
       }
 
-      public override bool IsZero()
+      internal override bool IsZero()
       {
          return false;
       }
 
-      public override char[] Sigma()
+      internal override char[] Sigma()
       {
          // NOTE: this class IS intended for rewrite.
          return new Char[] { Letter };
@@ -1116,7 +1317,7 @@ namespace SimpleRegexIntersector
       }
 
       // not(not(a)) -> a
-      public override SimpleRegex Negate()
+      internal override SimpleRegex Negate()
       {
          return Letter(this.Letter);
       }
@@ -1126,7 +1327,12 @@ namespace SimpleRegexIntersector
    {
       public SimpleRegex Left, Right;
 
-      public override HashSet<SimpleRegex> PartialDeriv(char c)
+      public override SimpleRegex Clone()
+      {
+         return new SeqRegex() { Left = this.Left.Clone(), Right = this.Right.Clone() };
+      }
+
+      internal override HashSet<SimpleRegex> PartialDeriv(char c)
       {
          if (Left.IsEmpty())
          {
@@ -1145,13 +1351,29 @@ namespace SimpleRegexIntersector
          }
       }
 
-      public override bool Contains(int x)
+      internal override bool Contains(int x)
       {
          return Left.Contains(x) || Right.Contains(x);
       }
 
-      public override Pair ConvertInternal(int x)
+      // Note: due to the way intersect constructs sequences, Left will never contain the variable.
+      // So, if right does not contain the variable, we can just return { empty, this }: no changes.
+      // Otherwise, convert right (as right') and return:
+      //
+      // { left right'.left, right'.right }
+      //
+      // A variable is ultimately contained in a sequence, and this is the only place where we return a pair
+      // where the left is not necessarily empty.
+      // So this = sequence(left, ... ... sequence( containing x ) )
+      // So we can simply look at all the possibilities:
+      // 1. right is the variable x: right'.left = empty, so we return { left, empty }
+      // 2. right is not empty or zero or a letter: these do not contain x
+      // 3. right is a choice: x is contained in left or right or both. Say in left. if left is no sequence, this returns
+      //    empty so we'd return { left, empty }. Otherwise, it's a sequence containing x, so we return { left left2, 
+      internal override Pair ConvertInternal(int x)
       {
+         Debug.Assert(!Left.Contains(x), "left should never contain a variable in a sequence");
+
          if (Right.Contains(x))
          {
             Pair tRightPair = Right.ConvertInternal(x);
@@ -1161,12 +1383,12 @@ namespace SimpleRegexIntersector
             return Pair(Empty, this);
       }
 
-      public override bool IsEmpty()
+      internal override bool IsEmpty()
       {
          return Left.IsEmpty() && Right.IsEmpty();
       }
 
-      public override bool IsZero()
+      internal override bool IsZero()
       {
          return Left.IsZero() || Right.IsZero();
       }
@@ -1176,7 +1398,7 @@ namespace SimpleRegexIntersector
          return "(" + Left.ToString() + " " + Right.ToString() + ")";
       }
 
-      public override char[] Sigma()
+      internal override char[] Sigma()
       {
          return Left.Sigma().Merge(Right.Sigma()).Nub();  
       }
@@ -1204,9 +1426,9 @@ namespace SimpleRegexIntersector
       //    = not(not(A)) & (not(A) | A.not(not(B)))
       //    = A & (not(A) | A.B)
       //    = A & (A.B) = A.B
-      public override SimpleRegex Negate()
+      internal override SimpleRegex Negate()
       {
-         return Choice(Left.Negate(), Sequence(Left, Right.Negate()));
+         return Choice(Left.Negate(), Sequence(Left.Clone(), Right.Negate()));
       }
    }
 
@@ -1220,7 +1442,12 @@ namespace SimpleRegexIntersector
          return f(this);
       }
 
-      public override HashSet<SimpleRegex> PartialDeriv(char c)
+      public override SimpleRegex Clone()
+      {
+         return new KleeneRegex() { Operand = this.Operand.Clone() };
+      }
+
+      internal override HashSet<SimpleRegex> PartialDeriv(char c)
       {
          HashSet<SimpleRegex> tDerivs = new HashSet<SimpleRegex>();
          foreach (SimpleRegex tPart in Operand.PartialDeriv(c))
@@ -1228,22 +1455,23 @@ namespace SimpleRegexIntersector
          return tDerivs;
       }
 
-      public override bool Contains(int x)
+      internal override bool Contains(int x)
       {
          return Operand.Contains(x);
       }
 
-      public override Pair ConvertInternal(int x)
+      // todo: NOT correct
+      internal override Pair ConvertInternal(int x)
       {
          return Pair(Empty, this); // todo: im not entirely sure if correct, but i think it is
       }
 
-      public override bool IsEmpty()
+      internal override bool IsEmpty()
       {
          return true;
       }
 
-      public override bool IsZero()
+      internal override bool IsZero()
       {
          return false;
       }
@@ -1253,7 +1481,7 @@ namespace SimpleRegexIntersector
          return "(" + Operand.ToString() + ")*";
       }
 
-      public override char[] Sigma()
+      internal override char[] Sigma()
       {
          return Operand.Sigma();
       }
@@ -1278,7 +1506,7 @@ namespace SimpleRegexIntersector
       //              = not(not(e)) | not(not(A)*)
       //              = e | (not(e) & not(not(A))*)
       //              = e | (not(e) & A*) = e | A* = A*
-      public override SimpleRegex Negate()
+      internal override SimpleRegex Negate()
       {
          return And(Empty.Negate(), Star(Operand.Negate()));
       }
@@ -1286,27 +1514,33 @@ namespace SimpleRegexIntersector
 
    public class EmptyRegex : SimpleRegex
    {
-      public override HashSet<SimpleRegex> PartialDeriv(char c)
+      internal override HashSet<SimpleRegex> PartialDeriv(char c)
       {
          return new HashSet<SimpleRegex>();
       }
 
-      public override Pair ConvertInternal(int x)
+      public override SimpleRegex Clone()
+      {
+         return Empty;
+      }
+
+      // Does not contain x, so return { empty, empty }.
+      internal override Pair ConvertInternal(int x)
       {
          return Pair(Empty, Empty);
       }
 
-      public override bool Contains(int x)
+      internal override bool Contains(int x)
       {
          return false;
       }
 
-      public override bool IsEmpty()
+      internal override bool IsEmpty()
       {
          return true;
       }
 
-      public override bool IsZero()
+      internal override bool IsZero()
       {
          return false;
       }
@@ -1316,7 +1550,7 @@ namespace SimpleRegexIntersector
          return "<>";
       }
 
-      public override char[] Sigma()
+      internal override char[] Sigma()
       {
          return new Char[] { };
       }
@@ -1339,7 +1573,7 @@ namespace SimpleRegexIntersector
 
       // not (e) = a | b | ... | zero, all letters plus zero
       // so not(not(e)) = not(a) & not(b) ... & not(zero) = e
-      public override SimpleRegex Negate()
+      internal override SimpleRegex Negate()
       {
          //return Complete;  
          return Choice(Complete, Zero);
@@ -1354,12 +1588,18 @@ namespace SimpleRegexIntersector
          return f(this);
       }
 
-      public override bool Contains(int x)
+      public override SimpleRegex Clone()
+      {
+         return Complete;
+      }
+
+      internal override bool Contains(int x)
       {
          return false;
       }
 
-      public override Pair ConvertInternal(int x)
+      // Not needed, as the Complete regex is a special node that should be written out.
+      internal override Pair ConvertInternal(int x)
       {
          throw new NotImplementedException();
       }
@@ -1374,30 +1614,34 @@ namespace SimpleRegexIntersector
          return 234978;
       }
 
-      public override bool IsEmpty()
+      internal override bool IsEmpty()
       {
          return false;
       }
 
-      public override bool IsZero()
+      internal override bool IsZero()
       {
          return false;
       }
 
       // not(a|b|..|z) = not(a) & not(b) ... & not(z)
       //               = (n(a) & n(b) ... n(z) ) | Empty = Zero | Empty = Empty
-      public override SimpleRegex Negate()
+      internal override SimpleRegex Negate()
       {
          return Empty;
       }
 
-      public override HashSet<SimpleRegex> PartialDeriv(char c)
+      // As complete can be viewed a | b | c | ... | z, ie the whole "alphabet", we can 
+      // get the partial deriv for 'c' as:
+      // partialderiv(c | .) = partialderiv(c) union partialderiv( a | b | d ...)
+      // = { empty } union {} = { empty }
+      internal override HashSet<SimpleRegex> PartialDeriv(char c)
       {
-         throw new NotImplementedException();
+         return new HashSet<SimpleRegex>() { Empty }; // todo: this is used in some other places, can we use a single instance?
       }
 
       // can't meaningfully implement, anyway, this class is intended for rewriting only.
-      public override char[] Sigma()
+      internal override char[] Sigma()
       {
          return new Char[0];// 
       }
@@ -1419,7 +1663,12 @@ namespace SimpleRegexIntersector
          return f(this);
       }
 
-      public override bool Contains(int x)
+      public override SimpleRegex Clone()
+      {
+         return new RangeRegex() { Negated = this.Negated, Low = this.Low, High = this.High };
+      }
+
+      internal override bool Contains(int x)
       {
          return false;
       }
@@ -1434,7 +1683,8 @@ namespace SimpleRegexIntersector
          return c >= this.Low && c <= this.High;
       }
 
-      public override Pair ConvertInternal(int x)
+      // Not implemented as this is a special regex node that must be rewritten.
+      internal override Pair ConvertInternal(int x)
       {
          throw new NotImplementedException();
       }
@@ -1457,29 +1707,34 @@ namespace SimpleRegexIntersector
          return Low.GetHashCode() ^ High.GetHashCode();
       }
 
-      public override bool IsEmpty()
+      internal override bool IsEmpty()
       {
          return false;
       }
 
-      public override bool IsZero()
+      internal override bool IsZero()
       {
          return false;
       }
 
       // Can not negate, so rewrite must tackle ranges first, and replace with marker.
-      public override SimpleRegex Negate()
+      internal override SimpleRegex Negate()
       {
-         Negated = !Negated; // used in rewrite
-         return this;
+         //Negated = !Negated; // used in rewrite
+         //return this;
+         RangeRegex tResult = (RangeRegex)this.Clone();
+         tResult.Negated = !this.Negated;
+         return tResult;
       }
 
-      public override HashSet<SimpleRegex> PartialDeriv(char c)
+      // note: range regular expressions are intended to be rewritten, so this needs no implementation.
+      // If you get here, it indicates a bug.
+      internal override HashSet<SimpleRegex> PartialDeriv(char c)
       {
          throw new NotImplementedException();
       }
 
-      public override char[] Sigma()
+      internal override char[] Sigma()
       {
          // rewrite intentions, no sigma here
          return new Char[0];
@@ -1493,32 +1748,38 @@ namespace SimpleRegexIntersector
 
    public class ZeroRegex : SimpleRegex
    {
-      public override HashSet<SimpleRegex> PartialDeriv(char c)
+      internal override HashSet<SimpleRegex> PartialDeriv(char c)
       {
          return new HashSet<SimpleRegex>();
       }
 
-      public override Pair ConvertInternal(int x)
+      public override SimpleRegex Clone()
+      {
+         return Zero;
+      }
+
+      // Does not contain x, so return { empty, self } = { empty, zero }.
+      internal override Pair ConvertInternal(int x)
       {
          return Pair(Empty, Zero); // todo: not sure correct
       }
 
-      public override bool Contains(int x)
+      internal override bool Contains(int x)
       {
          return false;
       }
 
-      public override bool IsEmpty()
+      internal override bool IsEmpty()
       {
          return false;
       }
 
-      public override bool IsZero()
+      internal override bool IsZero()
       {
          return true;
       }
 
-      public override char[] Sigma()
+      internal override char[] Sigma()
       {
          return new Char[] { };
       }
@@ -1547,7 +1808,7 @@ namespace SimpleRegexIntersector
       // not(0) = a | b | .. | empty
       // not(not(0)) = not(a) & not(b) & ... & not(empty) = 0
       // 
-      public override SimpleRegex Negate()
+      internal override SimpleRegex Negate()
       {
          return Choice(Complete, Empty);
       }

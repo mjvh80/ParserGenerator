@@ -11,7 +11,8 @@
     <RootNamespace>SimpleConsoleTests</RootNamespace>
     <AssemblyName>SimpleConsoleTests</AssemblyName>
     <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
-    <TargetFrameworkProfile>Client</TargetFrameworkProfile>
+    <TargetFrameworkProfile>
+    </TargetFrameworkProfile>
     <FileAlignment>512</FileAlignment>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
@@ -55,6 +56,17 @@
       <Project>{6B578367-98D5-4231-AD46-80759ED8EE72}</Project>
       <Name>XPath2</Name>
     </ProjectReference>
+    <ProjectReference Include="..\SimpleCC.csproj">
+      <Project>{B9530F19-1D86-45FF-8701-8DEAD4A94275}</Project>
+      <Name>SimpleCC</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\XPath2Tests\SimpleCCTests.csproj">
+      <Project>{0789B360-0AD7-476E-9901-2142FE855E81}</Project>
+      <Name>SimpleCCTests</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="app.config" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

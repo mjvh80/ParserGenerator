@@ -14,9 +14,13 @@ namespace SimpleRegexIntersectorTest
       {
          SimpleRegex tLeft = SimpleRegex.Parse(left);
          SimpleRegex tRight = SimpleRegex.Parse(right);
-         SimpleRegex.Rewrite(ref tLeft, ref tRight);
-         if (!tLeft.SemanticEquals(tRight))
+         //SimpleRegex.Rewrite(ref tLeft, ref tRight);
+         //if (!tLeft.SemanticEquals(tRight))
+         if (!SimpleRegex.RewritesEqual(tLeft, tRight))
             throw new Exception(String.Format("{0} is not equal to {1}: assertion failure", left, right));
+
+         // todo: api isnt so nice, and here we do a rewrite again.. but it's for testing
+         SimpleRegex.CloneAndRewrite(ref tLeft, ref tRight);
 
          if (tLeft.EqualsConsistentHashCode() != tRight.EqualsConsistentHashCode())
             throw new Exception(String.Format("{0} hashcode not equals consistent with {1}", left, right));
@@ -26,8 +30,9 @@ namespace SimpleRegexIntersectorTest
       {
          SimpleRegex tLeft = SimpleRegex.Parse(left);
          SimpleRegex tRight = SimpleRegex.Parse(right);
-         SimpleRegex.Rewrite(ref tLeft, ref tRight);
-         if (!tLeft.Intersects(tRight))
+         //SimpleRegex.Rewrite(ref tLeft, ref tRight);
+         //if (!tLeft.Intersects(tRight))
+         if (!SimpleRegex.RewritesIntersect(tLeft, tRight))
             throw new Exception(String.Format("{0} does not intersect {1}: assertion failure", left, right));
       }
 
@@ -35,8 +40,9 @@ namespace SimpleRegexIntersectorTest
       {
          SimpleRegex tLeft = SimpleRegex.Parse(left);
          SimpleRegex tRight = SimpleRegex.Parse(right);
-         SimpleRegex.Rewrite(ref tLeft, ref tRight);
-         if (tLeft.Intersects(tRight))
+         //SimpleRegex.Rewrite(ref tLeft, ref tRight);
+         //if (tLeft.Intersects(tRight))
+         if (SimpleRegex.RewritesIntersect(tLeft, tRight))
             throw new Exception(String.Format("{0} intersects {1}: assertion failure", left, right));
       }
 
@@ -44,8 +50,9 @@ namespace SimpleRegexIntersectorTest
       {
          SimpleRegex tLeft = SimpleRegex.Parse(left);
          SimpleRegex tRight = SimpleRegex.Parse(right);
-         SimpleRegex.Rewrite(ref tLeft, ref tRight);
-         if (!tLeft.SharesCommonPrefixWith(tRight))
+         //SimpleRegex.Rewrite(ref tLeft, ref tRight);
+         //if (!tLeft.SharesCommonPrefixWith(tRight))
+         if (!SimpleRegex.RewritesCommonPrefix(tLeft, tRight))
             throw new Exception(String.Format("{0} does not share a common prefix with {1}: assertion failure", left, right));
       }
 
@@ -80,12 +87,18 @@ namespace SimpleRegexIntersectorTest
       [TestMethod]
       public void TestRegexNoIntersections()
       {
-         AssertDoesNotIntersect("a", "aa"); // caused trouble, introduced Zero into semantic equality check
-         AssertDoesNotIntersect("a", "b");
-         AssertDoesNotIntersect("a|b", "c|d");
-         AssertDoesNotIntersect("~a", "a");
-         AssertDoesNotIntersect("~(a|b)", "a|b*");
-         AssertDoesNotIntersect("a|b|c", "[g-m]");
+         //AssertDoesNotIntersect("a", "aa"); // caused trouble, introduced Zero into semantic equality check
+         //AssertDoesNotIntersect("a", "b");
+         //AssertDoesNotIntersect("a|b", "c|d");
+         //AssertDoesNotIntersect("~a", "a");
+         //AssertDoesNotIntersect("~(a|b)", "a|b*");
+         //AssertDoesNotIntersect("a|b|c", "[g-m]");
+
+         //AssertDoesNotIntersect("[0-9]+", @"(\.[0-9]+)|([0-9]+\.[0-9]*)");
+         //AssertDoesNotIntersect("[0-9]+", @"([0-9]+\.[0-9]*)");
+
+         // AA*, AA*. and AA*.A*
+         AssertDoesNotIntersect("A*", @"A*\.");
       }
 
       [TestMethod]

@@ -40,13 +40,14 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="SimplifyingVisitor.cs" />
-    <Compile Include="Parser_OLD.cs" />
-    <Compile Include="Parser.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="XPath2\XPath2Parser.cs" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\SimpleCC\SimpleCC.csproj">
+      <Project>{B9530F19-1D86-45FF-8701-8DEAD4A94275}</Project>
+      <Name>SimpleCC</Name>
+    </ProjectReference>
     <ProjectReference Include="..\SimpleRegexIntersector\SimpleRegexIntersector.csproj">
       <Project>{C9C709A7-3188-4BA9-B5F5-C2D9BE1707BB}</Project>
       <Name>SimpleRegexIntersector</Name>

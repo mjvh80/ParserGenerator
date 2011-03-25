@@ -16,16 +16,36 @@ namespace SimpleRegexIntersectorTest
          try
          {
             a();
-            throw new Exception("Assertion failure: expected exception of type " + typeof(T));
+            Assert.Fail("Assertion failure: expected exception of type " + typeof(T));
+         }
+         catch (AssertFailedException)
+         {
+            throw;
          }
          catch (T)
          {
             // ok
          }
-         catch
-         {
-            throw; // not ok
-         }
+      }
+
+      [TestMethod]
+      public void TestEscaping()
+      {
+         // '[', ']', '(', ')', '^', '.', '{', '}', '*', '+', '-', '?', '|', '&', '\\'
+         Assert.AreEqual("foobar", SimpleRegex.Escape("foobar"));
+         Assert.AreEqual("\\[\\]\\(\\)\\^\\.\\{\\}\\*\\+\\-\\?\\|\\&\\\\", SimpleRegex.Escape("[]()^.{}*+-?|&\\"));
+         Assert.AreEqual("[]()^.{}*+-?|&\\", SimpleRegex.Unescape(SimpleRegex.Escape("[]()^.{}*+-?|&\\")));
+         Assert.AreEqual("\\\\\\\\", SimpleRegex.Escape("\\\\"));
+         Assert.AreEqual("", SimpleRegex.Escape(""));
+         Assert.AreEqual(null, SimpleRegex.Escape(null));
+
+         Assert.AreEqual("foobar", SimpleRegex.Unescape(SimpleRegex.Escape("foobar")));
+
+         Assert.AreEqual(null, SimpleRegex.Unescape(null));
+         Assert.AreEqual("", SimpleRegex.Unescape(""));
+
+         AssertThrows(() => SimpleRegex.Unescape("\\o"));
+         AssertThrows(() => SimpleRegex.Unescape("\\"));
       }
 
       [TestMethod]
@@ -47,6 +67,9 @@ namespace SimpleRegexIntersectorTest
          SimpleRegex.Parse("[^a]");
          SimpleRegex.Parse("[^a\b]");
          SimpleRegex.Parse("[^\a]");
+         SimpleRegex foo = SimpleRegex.Parse("[^\"]");
+         SimpleRegex.Parse("'[^']*'");
+        SimpleRegex.Parse("'([^']|\\\\')*'");
       }
 
       [TestMethod]

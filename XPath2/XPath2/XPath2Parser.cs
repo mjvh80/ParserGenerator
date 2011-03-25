@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using Parser;
+using SimpleCC;
 
 namespace XPath2.Parser
 {
@@ -273,10 +273,21 @@ namespace XPath2.Parser
          tNCName = "NCNAME".Terminal();
 
          // todo:
-         tStringLiteral = "'[a-z]".Terminal();
-         tIntegerLiteral = "Int".Terminal();
-         tDecimalLiteral = "Dec".Terminal();
+         //tStringLiteral = "'[a-z]".Terminal();
+         tStringLiteral = "(\"(\"\"|[^\"])*\"|'(''|[^'])*')".Terminal();
+         
+         //tIntegerLiteral = "Int".Terminal();
+         tIntegerLiteral = "[0-9]+".Terminal();
+
+         //tDecimalLiteral = "Dec".Terminal();
+         // ("." Digits) | (Digits "." [0-9]*)
+         tDecimalLiteral = @"(\.[0-9]+)|([0-9]+\.[0-9]*)".Terminal();
+         
          tDoubleLiteral = "E".Terminal();
+         // (("." Digits) | (Digits ("." [0-9]*)?)) [eE] [+-]? Digits
+         //tDoubleLiteral = @"((\.[0-9]+)|([0-9]+(\.[0-9]*)?))[eE][\+\-]?[0-9]+".Terminal();
+
+         // tStringLiteral = "'[^']*'".Or("\"[^\"]*\"");
 
       }
    }

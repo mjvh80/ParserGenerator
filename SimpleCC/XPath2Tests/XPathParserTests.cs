@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using XPath2.Parser;
-using Parser;
+using SimpleCC;
 
 namespace XPath2Tests
 {
@@ -19,13 +19,9 @@ namespace XPath2Tests
          mParser = new XPath2Parser().Build();
       }
 
-      [TestMethod]
-      public void GoodXPathsTest()
+      public static String[] ValidXPathExpressions =
       {
-         // Simple parse, expecting no exceptions.
-         foreach (String tXPath in new List<String>()
-         {
-            "/",
+           "/",
             "//*",
 			   "//QNAME",
 			   "/*",
@@ -96,7 +92,13 @@ namespace XPath2Tests
 			   "QNAME ne QNAME",
 			   "QNAME >> QNAME",
 			   "QNAME << QNAME",
-         })
+      };
+
+      [TestMethod]
+      public void GoodXPathsTest()
+      {
+         // Simple parse, expecting no exceptions.
+         foreach (String tXPath in ValidXPathExpressions)
             try
             {
                mParser.Parse(tXPath);
