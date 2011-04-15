@@ -176,6 +176,8 @@ namespace SimpleRegexIntersector
        * 
        * (r) x (r1) = r2 => x =?
        * 
+       * ie A ^ B = R1 x | R2 = R1 (A ^ B) | R2 => x = R1* R2 (see Choice).
+       * 
        * x, e -> (e, e)
        * x, var(x) -> (e, e)
        * x, var(y) -> (e, var(y)) <-- no change, we're not converting this one
@@ -190,6 +192,10 @@ namespace SimpleRegexIntersector
        * Actual conversion is:
        * 
        * r -> Seq(star r1) r2 => r1* r2
+       * 
+       * See Choice and other implementations for more on this.
+       * 
+       * Return: matches of the regex containing x on the left, others on the right.
        */
       internal abstract Pair ConvertInternal(Int32 x);
       internal abstract Boolean Contains(Int32 x);
@@ -402,6 +408,12 @@ namespace SimpleRegexIntersector
       public Int32 EqualsConsistentHashCode()
       {
          return Clone().Rewrite().EqualsConsistentHashCode(new Dictionary<SimpleRegex, Int32>(), 1);
+      }
+
+      // todo: this really sucks balls, but I'll address that later
+      public Int32 EqualsConsistentHashCodeNoRewrite()
+      {
+         return Clone().EqualsConsistentHashCode(new Dictionary<SimpleRegex, Int32>(), 1);
       }
 
       // Every regex is:
@@ -902,6 +914,8 @@ namespace SimpleRegexIntersector
          return tResult.ToString();
       }
 
+      // todo: support for (ignoring) non-capturing groups
+
       protected static SimpleRegex Parse_Set(String expr, ref Int32 pos)
       {
          pos += 1; // skip [
@@ -943,10 +957,22 @@ namespace SimpleRegexIntersector
    {
       public Int32 Value;
 
+      // Clearly, if this is x, we're solving A ^ B = A ^ B (=x) with solution empty.
+      // Otherwise, consider the variable (y, say) any other regex (that it represents). Clearly we assume y does not depend
+      // on x so we can just return it as any regex.
+      //
+      // Note: left(x) = empty, nothing else matches up to x.
+      //   right(x) = zero as there is nothing else that we can match if not x.
+      //
+      // Example: solve A x. This has no solutions as the only string that matches is an infinite string of As. This is solved by returning our Zero right.
+      // Example (2): solve A x b: no solutions.
+      // However, consider A x b | c, a solution is A* c b. BUT our conversion never presents a situation with a sequence of this type.
+      // Ie, a variable (see variable convertinternal) always has a variable on the right, and sequence conversions either start with x in its right part, or
+      // convert to sequences that have variables in their right parts, never their lefts.
       internal override Pair ConvertInternal(int x)
       {
          if (x == Value)
-            return Pair(Empty, Empty); // remove
+            return Pair(Empty, Zero); // Empty); // remove
          else
             return Pair(Empty, this);  // keep it
       }
@@ -1033,9 +1059,19 @@ namespace SimpleRegexIntersector
          return Left.Contains(x) || Right.Contains(x);
       }
 
+      // Must solve expression of the form A ^ B = L(x) & R(x), for some L and R depending on x.
+      // It is quite clear (see Choice, Seq) that the solution is:
+      //
+      // (left(L) & left(R))+ (right(L) & right(R))
+      //
+      // Ie we first match up till x (which thus recursively continues forever) and finally match the rest.
+      // N.B. (todo): same empty issue (due to + above) as for sequence.
       internal override Pair ConvertInternal(int x)
       {
-         return Pair(Empty, this); // todo: must figure out what convert does, is this correct?
+         //return Pair(Empty, this); // todo: must figure out what convert does, is this correct?
+         Pair tLeft = Left.ConvertInternal(x);
+         Pair tRight = Right.ConvertInternal(x);
+         return Pair(And(tLeft.Left, tRight.Right), And(tLeft.Right, tRight.Right));
       }
 
       public override bool Equals(object obj)
@@ -1117,6 +1153,38 @@ namespace SimpleRegexIntersector
       // Then Choice(left'.right, right'.right) = Choice(left, right) = this.
       // => we're returning { empty, this }
       // 
+      // A ^ B = a x | b R = a (A ^ B) | b R, so input either matches b R or a b R or a a b R or a+ bR =>
+      // x = A ^ B = a* b R. WLOG: any R1 instead of a (not containing x).
+      // ie A ^ B = R1 x | R2 => A ^ B = R1* R2
+      // Similarly, we see that R1 x | R2 x | R => (R1 | R2)* R. This is either direct, or R1 x | R2 x = (R1 | R2) x etc.
+      //
+      // Generalising further, we wish to handle R1 | R(x), which is the general choice case.
+      // Here R(x) denotes some regular expression with a dependency on x.
+      // Following the above logic, it is clear that
+      //
+      // A ^ B = left(R)* (R1 | right(R))
+      //
+      // leaving out the empty left(R1) = empty as it has no dependency on x.
+      // 
+      // So left(R)  := regex that matches before A ^ B. 
+      //                More formal: regex f is in left(R) iff any input a matches f then if b matches x, ab matches R(x).
+      //                In terms of a DAG: left(R) is the DAG before the state x, which is "return to start".
+      //    right(R) := matches not x or anything after A ^ B. More formal: regex f is in right(R) iff a matches f then ??
+      //                Define recursively?
+      //                In DAG terms: this is the DAG that does not include x in its path.
+      // For more on this: suppose we have some string s we're matching. Either we match right(R), or we match left(R) then x, and then repeat until s is matched.
+      //
+      // Problem: Ax | Zero, clearly this should solve to A+, but solves to A* (empty | zero).
+      // 
+      // A* (empty | zero)
+      //
+      // ax | zero | b -> ax | b -> a*b
+      //
+      // Solution is that of Ax.
+      //
+      //
+      //
+      // TODO (solves empty issue): instead of doing A*B, we should let convert do A+B, then choice should return (A|empty)+B = A*B.
       internal override Pair ConvertInternal(int x)
       {
          // todo: if neither left nor right contains x, we should return empty instead of choice(empty, empty).
@@ -1276,7 +1344,7 @@ namespace SimpleRegexIntersector
       // Does not contain letter, so returns { empty, this }.
       internal override Pair ConvertInternal(int x)
       {
-         return Pair(Empty, this); // todo...
+         return Pair(Empty, this);
       }
 
       public override bool Equals(object obj)
@@ -1356,20 +1424,13 @@ namespace SimpleRegexIntersector
          return Left.Contains(x) || Right.Contains(x);
       }
 
-      // Note: due to the way intersect constructs sequences, Left will never contain the variable.
-      // So, if right does not contain the variable, we can just return { empty, this }: no changes.
-      // Otherwise, convert right (as right') and return:
-      //
-      // { left right'.left, right'.right }
-      //
-      // A variable is ultimately contained in a sequence, and this is the only place where we return a pair
-      // where the left is not necessarily empty.
-      // So this = sequence(left, ... ... sequence( containing x ) )
-      // So we can simply look at all the possibilities:
-      // 1. right is the variable x: right'.left = empty, so we return { left, empty }
-      // 2. right is not empty or zero or a letter: these do not contain x
-      // 3. right is a choice: x is contained in left or right or both. Say in left. if left is no sequence, this returns
-      //    empty so we'd return { left, empty }. Otherwise, it's a sequence containing x, so we return { left left2, 
+      // Again, solving A ^ B = L(x) R(x) where L and R are two regular expressions dependent on x.
+      // Due to the way, however, that intersect constructs sequences, L(x) = L: we don't need to consider the L(x) case.
+      // Thus clearly, if right does not contain the variable x, we can just return { empty, this }: no changes.
+      // Consider A ^ B = L a (A ^ B) = L a x. Clearly x = (L a)+.
+      // In general A ^ B = L R(x) => x = (L left(R))+ right(R). (left(R) is match up to x, right(R) is match after x).
+      // Note: A x has no solutions (but infinite strings of a). However, this sequence should be considered part of (!) a choice which will allow
+      // for solutions. In the general case R(x) here, of course, it can be that that contains a non-zero path, so that this provides a solution.
       internal override Pair ConvertInternal(int x)
       {
          Debug.Assert(!Left.Contains(x), "left should never contain a variable in a sequence");
@@ -1461,9 +1522,17 @@ namespace SimpleRegexIntersector
       }
 
       // todo: NOT correct
+      // Here we're solving A ^ B = R(x)*.
+      // Clearly this is solved by
+      //
+      // left(R)* right(R)
+      //
+      // See Choice and others: match up to x, then enter x and continue. At some point this stops due to *, then finish off rest.
       internal override Pair ConvertInternal(int x)
       {
-         return Pair(Empty, this); // todo: im not entirely sure if correct, but i think it is
+         //return Pair(Empty, this); // todo: im not entirely sure if correct, but i think it is
+         Pair tConversion = Operand.ConvertInternal(x);
+         return Pair(tConversion.Left, tConversion.Right);
       }
 
       internal override bool IsEmpty()
@@ -1524,7 +1593,7 @@ namespace SimpleRegexIntersector
          return Empty;
       }
 
-      // Does not contain x, so return { empty, empty }.
+      // Does not contain x, so return { empty, empty } (self).
       internal override Pair ConvertInternal(int x)
       {
          return Pair(Empty, Empty);
@@ -1601,7 +1670,7 @@ namespace SimpleRegexIntersector
       // Not needed, as the Complete regex is a special node that should be written out.
       internal override Pair ConvertInternal(int x)
       {
-         throw new NotImplementedException();
+         throw new InvalidOperationException("regex should have been rewritten");
       }
 
       public override bool Equals(object obj)
@@ -1686,7 +1755,7 @@ namespace SimpleRegexIntersector
       // Not implemented as this is a special regex node that must be rewritten.
       internal override Pair ConvertInternal(int x)
       {
-         throw new NotImplementedException();
+         throw new InvalidOperationException("regex should have been rewritten");
       }
 
       public Int32 Length { get { return ((Int32)(High - Low) + 1); } }
@@ -1759,9 +1828,12 @@ namespace SimpleRegexIntersector
       }
 
       // Does not contain x, so return { empty, self } = { empty, zero }.
+      // Update: instead this should return { zero, zero }. Consider zero x | b, clearly the zero part we can't even enter as zero never matches.
+      // Thus returning zero avoids that part altogether. zero x | b = b (as rewrite).
       internal override Pair ConvertInternal(int x)
       {
-         return Pair(Empty, Zero); // todo: not sure correct
+         //return Pair(Empty, Zero);
+         return Pair(Zero, Zero);
       }
 
       internal override bool Contains(int x)

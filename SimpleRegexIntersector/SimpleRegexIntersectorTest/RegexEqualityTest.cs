@@ -14,15 +14,14 @@ namespace SimpleRegexIntersectorTest
       {
          SimpleRegex tLeft = SimpleRegex.Parse(left);
          SimpleRegex tRight = SimpleRegex.Parse(right);
-         //SimpleRegex.Rewrite(ref tLeft, ref tRight);
-         //if (!tLeft.SemanticEquals(tRight))
+
          if (!SimpleRegex.RewritesEqual(tLeft, tRight))
             throw new Exception(String.Format("{0} is not equal to {1}: assertion failure", left, right));
 
          // todo: api isnt so nice, and here we do a rewrite again.. but it's for testing
          SimpleRegex.CloneAndRewrite(ref tLeft, ref tRight);
 
-         if (tLeft.EqualsConsistentHashCode() != tRight.EqualsConsistentHashCode())
+         if (tLeft.EqualsConsistentHashCodeNoRewrite() != tRight.EqualsConsistentHashCodeNoRewrite())
             throw new Exception(String.Format("{0} hashcode not equals consistent with {1}", left, right));
       }
 
@@ -87,15 +86,15 @@ namespace SimpleRegexIntersectorTest
       [TestMethod]
       public void TestRegexNoIntersections()
       {
-         //AssertDoesNotIntersect("a", "aa"); // caused trouble, introduced Zero into semantic equality check
-         //AssertDoesNotIntersect("a", "b");
-         //AssertDoesNotIntersect("a|b", "c|d");
-         //AssertDoesNotIntersect("~a", "a");
-         //AssertDoesNotIntersect("~(a|b)", "a|b*");
-         //AssertDoesNotIntersect("a|b|c", "[g-m]");
+         AssertDoesNotIntersect("a", "aa"); // caused trouble, introduced Zero into semantic equality check
+         AssertDoesNotIntersect("a", "b");
+         AssertDoesNotIntersect("a|b", "c|d");
+         AssertDoesNotIntersect("~a", "a");
+         AssertDoesNotIntersect("~(a|b)", "a|b*");
+         AssertDoesNotIntersect("a|b|c", "[g-m]");
 
-         //AssertDoesNotIntersect("[0-9]+", @"(\.[0-9]+)|([0-9]+\.[0-9]*)");
-         //AssertDoesNotIntersect("[0-9]+", @"([0-9]+\.[0-9]*)");
+         AssertDoesNotIntersect("[0-9]+", @"(\.[0-9]+)|([0-9]+\.[0-9]*)");
+         AssertDoesNotIntersect("[0-9]+", @"([0-9]+\.[0-9]*)");
 
          // AA*, AA*. and AA*.A*
          AssertDoesNotIntersect("A*", @"A*\.");

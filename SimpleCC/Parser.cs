@@ -720,18 +720,24 @@ namespace SimpleCC
          // Else, if A optional then lookahead in B.
          // Else: no lookahead here.
 
-         if (node.ParsesTerminal(s))
+         if (node.ParsesTerminal(s)) // > terminals in othernode are lookahead terminals
          {
+            ////// node may not exclusively parse the terminal, so check it for lookahead
+            ////node.LookaheadTerminals(s, termList); // result irrelevant
+
             // current terminal matches, so lookahead is found in othernode
             foreach (Terminal tOtherTerminal in otherNode.DoGetDecisionTerminals())
                termList.Add(tOtherTerminal);
 
             if (otherNode.Optional)
-               termList.Add(new DefaultTerminal());
+               termList.Add(new DefaultTerminal()); // todo: why is this? -> comment!
+
             return !otherNode.Optional; // if optional, we may not be done
          }
+         
          // Else: lookahead found in node, if optional should continue looking in otherNode.
-         else if (node.LookaheadTerminals(s, termList) && !node.Optional)
+         
+         else if (node.LookaheadTerminals(s, termList) && !node.Optional) // todo: should we even check optional here? ie node should not return true if optional?
             return true; // exhausted
          else
             return otherNode.LookaheadTerminals(s, termList) && !otherNode.Optional;
@@ -1146,7 +1152,7 @@ namespace SimpleCC
                      foreach (GeneralTerminal tOtherDefaultTerm in tDefaultTerminals)
                         if (SimpleRegex.RewritesIntersect(tEntry.Key.SimpleRegex, tOtherDefaultTerm.SimpleRegex)) // sharing a prefix is OK here: we'll handle this in the parser, they should just not intersect
                            throw new ParseException("2 terminals with defaults clashing"); // todo: obviously improve the msg here
-                  }
+                     }
                   
                   tDefaultTerminals.Add(tEntry.Key);
                }
@@ -1394,7 +1400,7 @@ namespace SimpleCC
       {
          // todo: perhaps just using Regex.Escape would be better
          mSimpleRegex = SimpleRegex.Parse(escape ? SimpleRegex.Escape(expr) : expr);
-         mRegex = new Regex(escape ? Regex.Escape(expr) : expr, RegexOptions.CultureInvariant); // todo: options
+         mRegex = new Regex(escape ? Regex.Escape(expr) : expr, RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace); // todo: options
          mExpression = expr;
       }
 
