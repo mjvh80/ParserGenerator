@@ -264,20 +264,24 @@ namespace XPath2.Parser
          //   ParseDelegate = c => { c.AdvanceInterleaved(); c.Advance(; c.AdvanceInterleaved(); } // todo: this is incorrec,t but for testing...
          //};
 
-         ParseNode tNameStartChar = "[A-Z] | _ | [a-z] | [\xC0-\xD6] | [\xD8-\xF6] | [\xF8-\x2FF] | [\x370-\x37D] | [\x37F-\x1FFF] | [\x200C-\x200D] | [\x2070-\x218F] | [\x2C00-\x2FEF] | [\x3001-\xD7FF] | [\xF900-\xFDCF] | [\xFDF0-\xFFFD]".Terminal();
-         ParseNode tNameChar = tNameStartChar.Or("\\- | \\. | [0-9] | \xB7 | [\x0300-\x036F] | [\x203F-\x2040]");
+       //  ParseNode tNameStartChar = "[A-Z] | _ | [a-z] | [\xC0-\xD6] | [\xD8-\xF6] | [\xF8-\x2FF] | [\x370-\x37D] | [\x37F-\x1FFF] | [\x200C-\x200D] | [\x2070-\x218F] | [\x2C00-\x2FEF] | [\x3001-\xD7FF] | [\xF900-\xFDCF] | [\xFDF0-\xFFFD]".Terminal();
+       //  ParseNode tNameChar = tNameStartChar.Or("\\- | \\. | [0-9] | \xB7 | [\x0300-\x036F] | [\x203F-\x2040]");
 
-         tVarName = "VARNAME".Terminal();
+         tVarName = Rule(() => tQName);
 
 
          // todo
-         tNCName = "NCNAME".Terminal();
+       //  tNCName = "NCNAME".Terminal();
          // todo: namechar includes the range [\x10000-\xEFFFF] -> how?
-       //  tNCName = tNameStartChar.FollowedBy(tNameChar.ZeroOrMore());
+         //tNCName = tNameStartChar.FollowedBy(tNameChar.ZeroOrMore());
+         tNCName = String.Format("({0})({0}|{1})*",
+            "[A-Z] | _ | [a-z] | [\xC0-\xD6] | [\xD8-\xF6] | [\xF8-\x2FF] | [\x370-\x37D] | [\x37F-\x1FFF] | [\x200C-\x200D] | [\x2070-\x218F] | [\x2C00-\x2FEF] | [\x3001-\xD7FF] | [\xF900-\xFDCF] | [\xFDF0-\xFFFD]",
+            "\\- | \\. | [0-9] | \xB7 | [\x0300-\x036F] | [\x203F-\x2040]")
+            .Terminal();
 
          // Parse NCNAME | NCNAME : NCNAME, rewritten for 1 lookahead.
-         //tQName = tNCName.FollowedBy(":".FollowedBy(tNCName).Optional());
-         tQName = "QNAME".Terminal();
+         tQName = tNCName.FollowedBy(":".FollowedBy(tNCName).Optional());
+         //tQName = "QNAME".Terminal();
          
          
          // todo: the below QNAME causes assertion failures, which should be proper errors instead.

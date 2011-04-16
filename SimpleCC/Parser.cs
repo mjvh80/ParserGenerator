@@ -569,7 +569,7 @@ namespace SimpleCC
       {
          if (this.ParsesTerminal(s))
          {
-            l.Add(new DefaultTerminal());
+            //l.Add(new DefaultTerminal());
             return true;
          }
 
@@ -722,22 +722,20 @@ namespace SimpleCC
 
          if (node.ParsesTerminal(s)) // > terminals in othernode are lookahead terminals
          {
-            ////// node may not exclusively parse the terminal, so check it for lookahead
-            ////node.LookaheadTerminals(s, termList); // result irrelevant
+            // node may not exclusively parse the terminal, so check it for lookahead
+            // instead, do this below
+            //node.LookaheadTerminals(s, termList); // result irrelevant
 
             // current terminal matches, so lookahead is found in othernode
             foreach (Terminal tOtherTerminal in otherNode.DoGetDecisionTerminals())
                termList.Add(tOtherTerminal);
-
-            if (otherNode.Optional)
-               termList.Add(new DefaultTerminal()); // todo: why is this? -> comment!
 
             return !otherNode.Optional; // if optional, we may not be done
          }
          
          // Else: lookahead found in node, if optional should continue looking in otherNode.
          
-         else if (node.LookaheadTerminals(s, termList) && !node.Optional) // todo: should we even check optional here? ie node should not return true if optional?
+         /* else */ if (node.LookaheadTerminals(s, termList) && !node.Optional) // todo: should we even check optional here? ie node should not return true if optional?
             return true; // exhausted
          else
             return otherNode.LookaheadTerminals(s, termList) && !otherNode.Optional;
@@ -1107,6 +1105,15 @@ namespace SimpleCC
             {
                HashSet<Terminal> tLookaheadTerminals = new HashSet<Terminal>();
                tNode.LookaheadTerminals(tItem.Key, tLookaheadTerminals); // get lookahead
+               
+               // Look to see if there should be a default route.
+               // If the node parses the terminal, it should be selected if no other lookahead routes are available.
+               // eg for our xpath case: attribute::,attribute() and attribute (as an element name, nametest). If none
+               // of the lookaheads match, ie :: and () then we should select the nametest route. In case of multiple default
+               // routes, we will greedily pick the one that parses the most.
+               if (tNode.ParsesTerminal(tItem.Key)) // todo: cache result?
+                  tLookaheadTerminals.Add(new DefaultTerminal());
+               
                if (tLookaheadTerminals.Count > 0)
                {
                   List<Pair<HashSet<Terminal>, ParseNode>> tList;
@@ -1191,6 +1198,19 @@ namespace SimpleCC
          foreach (ParseNode tNode in mConflictMap[s])
             tResult = tResult && tNode.LookaheadTerminals(s, l);
          return tResult;
+      }
+
+      // A lookahead node parser the terminal if the key is equal (ie it parses) and the actual lookahead selector
+      // is the default route.
+      public override bool ParsesTerminal(Terminal pTerminal)
+      {
+         foreach (GeneralTerminal tTerm in mLookaheadMap.Keys)
+            if (tTerm.SemanticEquals((GeneralTerminal)pTerminal)) // it parses
+               foreach (var tItem in mLookaheadMap[tTerm]) // todo lookup should be avoided by different foreach above
+                  if (tItem.Left.Any(t => t is DefaultTerminal))
+                     return true;
+
+         return false;
       }
 
       public override SyntaxNode Parse(ParseContext c)
