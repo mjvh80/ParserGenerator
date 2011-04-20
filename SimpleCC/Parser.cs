@@ -1226,10 +1226,11 @@ namespace SimpleCC
 
          foreach (GeneralTerminal tTerminal in mLookaheadMap.Keys)
          {
-            if (tTerminal.CanAdvance(c))
+            //if (tTerminal.CanAdvance(c))
+            //{
+            //   tTerminal.AdvanceTerminal(c); // takes care of interleaving
+            if (tTerminal.OptAdvance(c))
             {
-               tTerminal.AdvanceTerminal(c); // takes care of interleaving
-
                // Choose a lookahead terminal, and then proceed.
                foreach (var tPair in mLookaheadMap[tTerminal])
                   foreach (GeneralTerminal tLookaheadTerminal in tPair.Left)
@@ -1361,6 +1362,8 @@ namespace SimpleCC
    {
       public abstract Boolean CanAdvance(ParseContext ctx);
       public abstract String AdvanceTerminal(ParseContext ctx);
+      public abstract Boolean OptAdvance(ParseContext ctx);
+
       public abstract Terminal Clone();
 
       public abstract Boolean ConflictsWith(Terminal pOther);
@@ -1387,6 +1390,11 @@ namespace SimpleCC
          throw new InvalidOperationException("default terminal cannot advance");
       }
 
+      public override bool OptAdvance(ParseContext ctx)
+      {
+         throw new NotImplementedException();
+      }
+
       public override bool ConflictsWith(Terminal pOther)
       {
          return true;
@@ -1409,6 +1417,9 @@ namespace SimpleCC
       protected Regex mRegex;
       protected SimpleRegex mSimpleRegex;
 
+      protected ParseContext mCacheContext;
+      protected String[] mMatchCache;
+
       public SimpleRegex SimpleRegex { get { return mSimpleRegex; } }
 
       // todo: remove once DefaultTerminal is no longer a GeneralTerminal.
@@ -1424,25 +1435,98 @@ namespace SimpleCC
          mExpression = expr;
       }
 
-      public override bool CanAdvance(ParseContext ctx)
-      {
-         // todo: must check we started at position...
-         Match tMatch = mRegex.Match(ctx.Expression, ctx.Position);
-         return tMatch.Success && tMatch.Index == ctx.Position;
-      }
-
       public override Terminal Clone()
       {
          return new GeneralTerminal(mExpression);
+      }
+
+      protected Boolean CheckCache(ParseContext ctx, out String rCacheResult)
+      {
+         if (mMatchCache == null || ctx != mCacheContext)
+         {
+            mCacheContext = ctx;
+            mMatchCache = new String[ctx.Expression.Length];
+         }
+         if (ctx.Position >= mMatchCache.Length)
+         {
+            rCacheResult = null;
+            return false;
+         }
+         rCacheResult = mMatchCache[ctx.Position];
+         return rCacheResult != null;
+      }
+
+      protected void SetCache(ParseContext ctx, Match pMatch)
+      {
+         mMatchCache[ctx.Position] = pMatch.Value;
+      }
+
+      protected Boolean CheckCache(ParseContext ctx)
+      {
+         String tDummy;
+         return CheckCache(ctx, out tDummy);
+      }
+
+      public override bool CanAdvance(ParseContext ctx)
+      {
+         if (CheckCache(ctx))
+            return true;
+
+         System.Diagnostics.Stopwatch tTimer = System.Diagnostics.Stopwatch.StartNew();
+         Match tMatch = mRegex.Match(ctx.Expression, ctx.Position);
+         if (tMatch.Success && tMatch.Index == ctx.Position)
+         {
+            SetCache(ctx, tMatch);
+            return true;
+         }
+         return false;
+      }
+
+      public override bool OptAdvance(ParseContext ctx)
+      {
+         ctx.AdvanceInterleaved();
+
+         String tResult;
+         if (CheckCache(ctx, out tResult))
+         {
+            ctx.Position += tResult.Length;
+            ctx.AdvanceInterleaved(); // todo.. dont need to
+            return true;
+         }
+
+         Match tFirstMatch = mRegex.Match(ctx.Expression, ctx.Position);
+         if (!tFirstMatch.Success)
+            return false;
+         if (tFirstMatch.Index != ctx.Position)
+            return false;
+
+         SetCache(ctx, tFirstMatch);
+
+         ctx.Position += tFirstMatch.Length;
+
+         ctx.AdvanceInterleaved();
+
+         return true;
       }
 
       public override String AdvanceTerminal(ParseContext ctx)
       {
          ctx.AdvanceInterleaved();
 
+         String tResult;
+         if (CheckCache(ctx, out tResult))
+         {
+            ctx.Position += tResult.Length;
+            ctx.AdvanceInterleaved(); // todo: don't need to do this, can cache better
+            return tResult;
+         }
+
          Match tFirstMatch = mRegex.Match(ctx.Expression, ctx.Position);
-         if (!tFirstMatch.Success)
+         if (!tFirstMatch.Success) // todo: check index as well?
             throw new ParseException("failed to advance terminal"); // todo: improve
+
+         SetCache(ctx, tFirstMatch);
+         
          ctx.Position += tFirstMatch.Length;
 
          ctx.AdvanceInterleaved();
@@ -1493,10 +1577,17 @@ namespace SimpleCC
          return SemanticEquals(obj); // todo: if this ok, can remove of course
       }
 
+      // Hashcode is expensive, but can be cached.
+      protected Int32? mHashCode = null;
+
       public override int GetHashCode()
       {
-         return this.mSimpleRegex.EqualsConsistentHashCode(); // todo: may wish to try 
-         //return 42; // todo: use above, but make sure that bugs in the above are avoided first
+         if (mHashCode.HasValue)
+            return mHashCode.Value;
+
+         // todo: this performs an unnecessary regex rewrite (!)
+         mHashCode = this.mSimpleRegex.EqualsConsistentHashCode(); // todo: may wish to try 
+         return mHashCode.Value;
       }
    }
 

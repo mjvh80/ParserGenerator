@@ -40,6 +40,10 @@ namespace XPath2Tests
          "a()",
          "\xC1()",
          "QNAME()",
+         "foo:bar()",
+         "f:b()",
+         "foo:b()",
+         "f:bar()",
          "QNAME(QNAME)",
          "QNAME(QNAME, QNAME)",
          "QNAME(QNAME,$VARNAME)",
@@ -100,6 +104,7 @@ namespace XPath2Tests
       public static String[] InvalidXPathExpressions = new[] {
          "element(QNAME, QNAME?)", // this is a element test, NOT a function call, element test not allowed like this
          "element(*,QNAME?)",
+         "element(QNAME?)"
       };
 
       [TestMethod]
@@ -114,6 +119,21 @@ namespace XPath2Tests
             catch (Exception e)
             {
                throw new Exception("Error parsing: " + tXPath, e);
+            }
+      }
+
+      [TestMethod]
+      public void BadXPathsTest()
+      {
+         foreach(String tXPath in InvalidXPathExpressions)
+            try
+            {
+               mParser.Parse(tXPath);
+               Assert.Fail(String.Format("XPath {0} is invalid, but parsed.", tXPath));
+            }
+            catch
+            {
+               // OK
             }
       }
    }
