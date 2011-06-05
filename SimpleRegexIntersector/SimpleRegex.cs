@@ -104,6 +104,158 @@ namespace SimpleRegexIntersector
 
    public class Pair : Pair<SimpleRegex, SimpleRegex> { }
 
+   public class SimpleRegexBuilder
+   {
+      public static SimpleRegexBuilder Default = new SimpleRegexBuilder();
+
+      internal HashSet<Char> mAlphabet;
+      internal HashSet<RangeRegex> mRangeSet;
+
+      protected Dictionary<RangeRegex, Char> mRangeMarkerMap = new Dictionary<RangeRegex, char>();
+      protected readonly Char mMagicMarker = '\uFADE'; // todo: must choose something dynamically
+         
+
+      public SimpleRegexBuilder() : this(null, null) { }
+
+      public SimpleRegexBuilder(HashSet<Char> alphabet, HashSet<RangeRegex> rangeSet) // todo: i think another type for ranges here may be better
+      {
+         mAlphabet = alphabet ?? new HashSet<Char>(); // todo: copy instead?
+
+#if DEBUG
+         foreach (RangeRegex tRange in rangeSet)
+            if (!alphabet.Contains(tRange.Low) || !alphabet.Contains(tRange.High))
+               throw new InvalidOperationException("invalid range: boundaries not included in alphabet");
+
+         if (mAlphabet.Contains(mMagicMarker)) // todo: must ensure this never happens, this is a safety catch for now
+            throw new Exception("magic marker is used");
+#endif
+
+         mRangeSet = CreateDisjointRangeSet(rangeSet) ?? new HashSet<RangeRegex>();
+
+         // Update the alphabet.
+         foreach (RangeRegex tRange in mRangeSet)
+         {
+            alphabet.Add(tRange.Low);
+            alphabet.Add(tRange.High);
+         }
+         
+         // Build marker map.
+         Char tMarkerStart = 'A';// '\uf000'; // say, must find something "proper" todo
+         foreach (RangeRegex tDisjointRange in mRangeSet)
+         {
+            if (tMarkerStart == '\uffff')
+               throw new Exception("Markers exhausted"); // this is bad, but itll have to do for now..
+
+            mRangeMarkerMap.Add(tDisjointRange, tMarkerStart += '\x0001');
+         }
+      }
+
+      protected static HashSet<RangeRegex> CreateDisjointRangeSet(IEnumerable<RangeRegex> rangeSet)
+      {
+         HashSet<RangeRegex> tDisjointSet = new HashSet<RangeRegex>();
+         foreach (RangeRegex tRange in rangeSet)
+         {
+            if (tRange.Negated)
+               throw new InvalidOperationException("range must not be negated"); // simply do here?
+            SimpleRegex.AddRangeDisjoint(tRange, tDisjointSet); // todo: put this method somewhere else?
+         }
+         return tDisjointSet;
+      }
+
+      public SimpleRegex Parse(String regexExpr)
+      {
+         SimpleRegex tResult = SimpleRegex.Parse(regexExpr);
+         return Normalize(tResult);
+      }
+
+      protected SimpleRegex Normalize(SimpleRegex targetRegex)
+      {
+         SimpleRegex tResult = targetRegex;
+
+#if DEBUG
+         foreach (Char tChar in tResult.Sigma())
+            if (!mAlphabet.Contains(tChar))
+               throw new InvalidOperationException("char " + tChar + " not found in alphabet");
+#endif
+
+         // Process ranges by removing any characters used elsewhere.
+         // [a-d] -> [a-b] | c | d if c and d used elsewhere, with negations appropriately applied.
+         // Also, remove ranges of length 1.
+         tResult = tResult.Apply(r =>
+         {
+            if (r is RangeRegex)
+            {
+               RangeRegex tRange = (RangeRegex)r;
+               var tSplitRanges = SimpleRegex.SplitOnLetters(tRange, mAlphabet);
+               SimpleRegex tRewrite = SimpleRegex.Choice(from tSplitRange in tSplitRanges
+                                             select tSplitRange.Length == 1 ?
+                                                (SimpleRegex)Letter(tSplitRange.Low) : tSplitRange);
+
+               return tRange.Negated ? tRewrite.Negate() : tRewrite;
+            }
+            return r;
+         });
+
+         // 3. Rewrite regex tree with all ranges, rewriting with markers.
+         tResult = tResult.Apply(r =>
+         {
+            if (r is RangeRegex)
+               return SimpleRegex.Choice(from recon in SimpleRegex.Reconstruct((RangeRegex)r, mRangeSet)
+                             select
+                                ((RangeRegex)r).Negated ?
+                                (SimpleRegex)SimpleRegex.NegatedLetter(mRangeMarkerMap[recon]) :
+                                SimpleRegex.Letter(mRangeMarkerMap[recon]));
+
+            return r;
+         });
+
+         // Rewrite all negations, and complete regexes (dot) using the magic marker.
+        
+         // 1. Rewrite Complete regex:
+         // . = toregex(used_chars)
+         // If string s matches R1 and R2, and R1 contains '.' then in R2 it must either:
+         // - match a char in the regex (thus in toregex(used))
+         // - match . -> can rewrite s and replace the character at the position that matched with one of used.
+         // This works for intersection, but not for semantic equality i think.
+         // 
+         // Create a map from not-char to replacement.
+
+         // Before we get out, rewrite ., matching everything.
+         tResult = tResult.Apply(r =>
+         {
+            if (r is CompleteRegex)
+               return SimpleRegex.Choice(from c in mAlphabet select Letter(c), Letter(mMagicMarker));
+            return r;
+         });
+
+         // Rewrite negated letters.
+         tResult = tResult.Apply(r =>
+         {
+            if (r is NegatedLetterRegex)
+               return SimpleRegex.Choice(from c in mAlphabet where c != ((NegatedLetterRegex)r).Letter select Letter(c), Letter(mMagicMarker));
+            return r;
+         });
+
+         return tResult;
+      }
+
+
+
+      // We'll only provide methods here that do *not* need additional rewriting.
+      public static ChoiceRegex Choice(SimpleRegex left, SimpleRegex right) { return new ChoiceRegex() { Left = left, Right = right }; }
+      public static KleeneRegex Star(SimpleRegex op) { return new KleeneRegex() { Operand = op }; }
+      public static SeqRegex Sequence(SimpleRegex left, SimpleRegex right) { return new SeqRegex() { Left = left, Right = right }; }
+     
+      public static LetterRegex Letter(Char c) { return new LetterRegex() { Letter = c }; }
+
+      // These would, do not support for now.
+
+      //public static VarRegex Var(Int32 x) { return new VarRegex() { Value = x }; }
+      //public static NegatedLetterRegex NegatedLetter(Char c) { return new NegatedLetterRegex() { Letter = c }; }
+      //public static AndRegex And(SimpleRegex left, SimpleRegex right) { return new AndRegex() { Left = left, Right = right }; }
+      //public static SimpleRegex Not(SimpleRegex op) { return op.Negate(); }
+      //public static RangeRegex Range(Char lo, Char hi) { return new RangeRegex() { Low = lo, High = hi }; }
+   }
 
    // todo: other extensions possible:
    // ^: match start of input: requires no work, just ensure with parsing that ^ can not occur as char
@@ -120,18 +272,15 @@ namespace SimpleRegexIntersector
    public abstract class SimpleRegex
    {
       ///<summary>Matches the empty string.</summary> 
-      internal static SimpleRegex Empty = new EmptyRegex();
+      internal static readonly SimpleRegex Empty = new EmptyRegex();
 
       ///<summary>Matches nothing.</summary>
-      internal static SimpleRegex Zero = new ZeroRegex();
+      internal static readonly SimpleRegex Zero = new ZeroRegex();
 
       /// <summary>
       /// Matches everything (.).
       /// </summary>
-      internal static SimpleRegex Complete = new CompleteRegex();
-
-      // todo: this should be internal, can't be bothered for now
-      public Boolean Rewritten { get; set; }
+      internal static readonly SimpleRegex Complete = new CompleteRegex();
 
       /// <summary>
       /// Returns, for regex f, the set { p | (x, p) in linear forms of f }.
@@ -437,6 +586,17 @@ namespace SimpleRegexIntersector
 
          Int32 tResult = cnt;
          env[this] = 2; // don't care, pick this
+
+         if (this is RangeRegex)
+         {
+            RangeRegex tSelf = (RangeRegex)this;
+
+            // [a-g] = a | b | ... | g
+            // pd(c) = (c | (a | b | d | .. | g))(c) = { empty } + {} = { empty } 
+
+         }
+
+
          foreach (Char tLetter in tLetters)
          {
             tResult ^= tLetter.GetHashCode();
@@ -461,7 +621,7 @@ namespace SimpleRegexIntersector
          return left > right ? left : right;
       }
 
-      protected IEnumerable<RangeRegex> Split(RangeRegex range, RangeRegex comp)
+      internal static IEnumerable<RangeRegex> Split(RangeRegex range, RangeRegex comp)
       {
          if (!range.OverlapsWith(comp))
             throw new InvalidOperationException("ranges don't overlap");
@@ -486,7 +646,7 @@ namespace SimpleRegexIntersector
       // given a range and a set of disjoint ranges:
       // 1. if it is disjoint with the entire set: add it
       // 2. otherwise, for each intersection, spilt up ranges and update disjoint set.
-      protected void AddRange(RangeRegex range, HashSet<RangeRegex> disjointSet)
+      internal static void AddRangeDisjoint(RangeRegex range, HashSet<RangeRegex> disjointSet)
       {
          if (disjointSet.Count == 0)
             disjointSet.Add(range);
@@ -506,12 +666,12 @@ namespace SimpleRegexIntersector
                {
                   disjointSet.Remove(tReplacement);
                   foreach (RangeRegex tDisjoint in Split(range, tReplacement))
-                     AddRange(tDisjoint, disjointSet);
+                     AddRangeDisjoint(tDisjoint, disjointSet);
                }
          }
       }
 
-      protected IEnumerable<RangeRegex> Reconstruct(RangeRegex range, HashSet<RangeRegex> disjointRanges)
+      internal static IEnumerable<RangeRegex> Reconstruct(RangeRegex range, HashSet<RangeRegex> disjointRanges)
       {
          foreach (RangeRegex tDisjointRange in disjointRanges)
             if (range.Contains(tDisjointRange))
@@ -520,7 +680,7 @@ namespace SimpleRegexIntersector
 
       // again, implemented naively, ill focus on some perf later...
       // to improve: used a sorted list of letters and iterate through once
-      protected IEnumerable<RangeRegex> SplitOnLetters(RangeRegex range, IEnumerable<Char> letters)
+      internal static IEnumerable<RangeRegex> SplitOnLetters(RangeRegex range, IEnumerable<Char> letters)
       {
          Boolean tSplit = false;
          foreach(Char tLetter in letters)
@@ -556,6 +716,7 @@ namespace SimpleRegexIntersector
          right = ((ChoiceRegex)tResult).Right;
       }
 
+
       // Rewriting support for ranges and negation.
       // Does not clone, changes tree.
       // todo: instead, clone here rather than above?
@@ -563,23 +724,8 @@ namespace SimpleRegexIntersector
       {
          SimpleRegex tResult = this;
 
-         if (tResult.Rewritten)
-            throw new InvalidOperationException("Regular expression already rewritten.");
-
          HashSet<Char> tUsedSet = new HashSet<char>();
          tUsedSet.AddRange(tResult.Sigma());
-
-         // todo: add negated ones to Sigma??
-         // all negated letters
-         //HashSet<Char> tNegatedSet = new HashSet<char>();
-         // Note: no longer do this, used Sigma instead.
-         //tResult.Apply(r =>
-         //{
-         //   if (r is NegatedLetterRegex)
-         //      tNegatedSet.Add(((NegatedLetterRegex)r).Letter);
-
-         //   return r;
-         //});
 
          // Process ranges by removing any characters used elsewhere.
          // [a-d] -> [a-b] | c | d if c and d used elsewhere, with negations appropriately applied.
@@ -617,7 +763,7 @@ namespace SimpleRegexIntersector
          // 2. Rewrite ranges to be disjoint.
          HashSet<RangeRegex> tDisjointRanges = new HashSet<RangeRegex>();
          foreach (RangeRegex tRange in tRanges)
-            AddRange(tRange, tDisjointRanges);
+            AddRangeDisjoint(tRange, tDisjointRanges);
          
          // 3. Create map from disjoint range to marker.
          Dictionary<RangeRegex, Char> tRangeMarkerMap = new Dictionary<RangeRegex, char>();
@@ -679,7 +825,6 @@ namespace SimpleRegexIntersector
             return r;
          });
 
-         tResult.Rewritten = true;
          return tResult;
       }
 
@@ -723,6 +868,7 @@ namespace SimpleRegexIntersector
             SimpleRegex tResult = Parse_Regex(regexExpr, ref tPos);
             if (tPos != regexExpr.Length)
                throw new Exception("expected end of input");
+
             return tResult;
          }
          catch (Exception e)
@@ -1763,7 +1909,7 @@ namespace SimpleRegexIntersector
       public override bool Equals(object obj)
       {
          RangeRegex tOther = obj as RangeRegex;
-         return tOther != null && tOther.Low == this.Low && tOther.High == this.High;
+         return tOther != null && tOther.Low == this.Low && tOther.High == this.High; // TODO: must check negation here
       }
 
       public Boolean OverlapsWith(RangeRegex other)
@@ -1773,7 +1919,7 @@ namespace SimpleRegexIntersector
 
       public override int GetHashCode()
       {
-         return Low.GetHashCode() ^ High.GetHashCode();
+         return Low.GetHashCode() ^ High.GetHashCode(); // todo: add negation into this
       }
 
       internal override bool IsEmpty()
@@ -1805,8 +1951,7 @@ namespace SimpleRegexIntersector
 
       internal override char[] Sigma()
       {
-         // rewrite intentions, no sigma here
-         return new Char[0];
+         return new Char[] { Low, High };
       }
 
       public override string ToString()
