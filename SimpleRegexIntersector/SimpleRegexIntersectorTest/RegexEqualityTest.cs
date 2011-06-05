@@ -23,6 +23,33 @@ namespace SimpleRegexIntersectorTest
 
          if (tLeft.EqualsConsistentHashCodeNoRewrite() != tRight.EqualsConsistentHashCodeNoRewrite())
             throw new Exception(String.Format("{0} hashcode not equals consistent with {1}", left, right));
+
+         // Now do the same for our builder, without rewriting.
+         // 1. Collect alphabet, and ranges.
+         tLeft = SimpleRegexBuilder.Default.Parse(left);
+         tRight = SimpleRegexBuilder.Default.Parse(right);
+
+         HashSet<Char> tAlphabet = new HashSet<char>();
+         foreach (Char tChar in tLeft.Letters())
+            tAlphabet.Add(tChar);
+         foreach (Char tChar in tRight.Letters())
+            tAlphabet.Add(tChar);
+
+         HashSet<RangeRegex> tRanges = new HashSet<RangeRegex>();
+         foreach (RangeRegex tRange in tLeft.GetClonedRanges())
+            tRanges.Add(tRange);
+         foreach (RangeRegex tRange in tRight.GetClonedRanges())
+            tRanges.Add(tRange);
+
+         SimpleRegexBuilder tBuilder = new SimpleRegexBuilder(tAlphabet, tRanges);
+         tLeft = tBuilder.Parse(left);
+         tRight = tBuilder.Parse(right);
+
+         if (!tLeft.SemanticEquals(tRight))
+            throw new Exception(String.Format("[BUILDER] {0} is not equal to {1}: assertion failure", left, right));
+
+         if (tLeft.EqualsConsistentHashCodeNoRewrite() != tRight.EqualsConsistentHashCodeNoRewrite())
+            throw new Exception(String.Format("[BUILDER] {0} hashcode not equals consistent with {1}", left, right));
       }
 
       private void AssertIntersects(String left, String right)

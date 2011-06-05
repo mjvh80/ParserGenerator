@@ -122,15 +122,16 @@ namespace SimpleRegexIntersector
          mAlphabet = alphabet ?? new HashSet<Char>(); // todo: copy instead?
 
 #if DEBUG
-         foreach (RangeRegex tRange in rangeSet)
-            if (!alphabet.Contains(tRange.Low) || !alphabet.Contains(tRange.High))
-               throw new InvalidOperationException("invalid range: boundaries not included in alphabet");
+         if (rangeSet != null)
+            foreach (RangeRegex tRange in rangeSet)
+               if (!alphabet.Contains(tRange.Low) || !alphabet.Contains(tRange.High))
+                  throw new InvalidOperationException("invalid range: boundaries not included in alphabet");
 
          if (mAlphabet.Contains(mMagicMarker)) // todo: must ensure this never happens, this is a safety catch for now
             throw new Exception("magic marker is used");
 #endif
 
-         mRangeSet = CreateDisjointRangeSet(rangeSet) ?? new HashSet<RangeRegex>();
+         mRangeSet = CreateDisjointRangeSet(rangeSet);
 
          // Update the alphabet.
          foreach (RangeRegex tRange in mRangeSet)
@@ -153,12 +154,13 @@ namespace SimpleRegexIntersector
       protected static HashSet<RangeRegex> CreateDisjointRangeSet(IEnumerable<RangeRegex> rangeSet)
       {
          HashSet<RangeRegex> tDisjointSet = new HashSet<RangeRegex>();
-         foreach (RangeRegex tRange in rangeSet)
-         {
-            if (tRange.Negated)
-               throw new InvalidOperationException("range must not be negated"); // simply do here?
-            SimpleRegex.AddRangeDisjoint(tRange, tDisjointSet); // todo: put this method somewhere else?
-         }
+         if (rangeSet != null)
+            foreach (RangeRegex tRange in rangeSet)
+            {
+               if (tRange.Negated)
+                  throw new InvalidOperationException("range must not be negated"); // simply do here?
+               SimpleRegex.AddRangeDisjoint(tRange, tDisjointSet); // todo: put this method somewhere else?
+            }
          return tDisjointSet;
       }
 
@@ -170,6 +172,9 @@ namespace SimpleRegexIntersector
 
       protected SimpleRegex Normalize(SimpleRegex targetRegex)
       {
+         if (mAlphabet.Count == 0) // nothing to normalize against
+            return targetRegex;
+
          SimpleRegex tResult = targetRegex;
 
 #if DEBUG
@@ -271,6 +276,8 @@ namespace SimpleRegexIntersector
    /// </summary>
    public abstract class SimpleRegex
    {
+      internal static readonly Char[] EmptyCharArray = new Char[] { };
+
       ///<summary>Matches the empty string.</summary> 
       internal static readonly SimpleRegex Empty = new EmptyRegex();
 
@@ -320,6 +327,21 @@ namespace SimpleRegexIntersector
       public static AndRegex And(SimpleRegex left, SimpleRegex right) { return new AndRegex() { Left = left, Right = right }; }
       public static SimpleRegex Not(SimpleRegex op) { return op.Negate(); }
       public static RangeRegex Range(Char lo, Char hi) { return new RangeRegex() { Low = lo, High = hi }; }
+
+      public HashSet<RangeRegex> GetClonedRanges()
+      {
+         // todo ..
+         HashSet<RangeRegex> tRanges = new HashSet<RangeRegex>();
+         this.Apply(s => { if (s is RangeRegex) tRanges.Add((RangeRegex)s.Clone()); return s; });
+         return tRanges;
+      }
+
+      // Public api: todo consolidate?
+      public Char[] Letters()
+      {
+         return this.Sigma();
+      }
+
 
       /* Performs a conversion to remove recursion:
        * 
@@ -1767,7 +1789,7 @@ namespace SimpleRegexIntersector
 
       internal override char[] Sigma()
       {
-         return new Char[] { };
+         return EmptyCharArray;
       }
 
       // we intend empty to be a singleton.. but we'll do this anyway
@@ -1858,7 +1880,7 @@ namespace SimpleRegexIntersector
       // can't meaningfully implement, anyway, this class is intended for rewriting only.
       internal override char[] Sigma()
       {
-         return new Char[0];// 
+         return EmptyCharArray;
       }
 
       public override string ToString()
@@ -1998,7 +2020,7 @@ namespace SimpleRegexIntersector
 
       internal override char[] Sigma()
       {
-         return new Char[] { };
+         return EmptyCharArray;
       }
 
       public override string ToString()
