@@ -157,9 +157,7 @@ namespace SimpleRegexIntersector
          if (rangeSet != null)
             foreach (RangeRegex tRange in rangeSet)
             {
-               if (tRange.Negated)
-                  throw new InvalidOperationException("range must not be negated"); // simply do here?
-               SimpleRegex.AddRangeDisjoint(tRange, tDisjointSet); // todo: put this method somewhere else?
+               SimpleRegex.AddRangeDisjoint(tRange.Negated ? (RangeRegex)tRange.Negate() : tRange, tDisjointSet); // todo: put this method somewhere else?
             }
          return tDisjointSet;
       }
@@ -328,6 +326,7 @@ namespace SimpleRegexIntersector
       public static SimpleRegex Not(SimpleRegex op) { return op.Negate(); }
       public static RangeRegex Range(Char lo, Char hi) { return new RangeRegex() { Low = lo, High = hi }; }
 
+      // todo: force not negated?
       public HashSet<RangeRegex> GetClonedRanges()
       {
          // todo ..
@@ -458,14 +457,14 @@ namespace SimpleRegexIntersector
 
       // todo: compare a|b with b|a gives error...
       // note: does not rewrite, and can change the 
-      internal Boolean Intersects(SimpleRegex other)
+      public Boolean Intersects(SimpleRegex other)
       {
          // Second change to MS' code: compare with Zero as well:
          SimpleRegex tIntersection = this.Intersect(new Dictionary<Pair, SimpleRegex>(), 0, other);
          return !(Empty.SemanticEquals(tIntersection) || Zero.SemanticEquals(tIntersection));
       }
 
-      internal Boolean SharesCommonPrefixWith(SimpleRegex other)
+      public Boolean SharesCommonPrefixWith(SimpleRegex other)
       {
          // Second change to MS' code: compare with Zero as well:
          SimpleRegex tPrefixIntersection = this.GetCommonPrefix(new Dictionary<Pair, SimpleRegex>(), 0, other);

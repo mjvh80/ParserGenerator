@@ -24,10 +24,26 @@ namespace SimpleRegexIntersectorTest
          if (tLeft.EqualsConsistentHashCodeNoRewrite() != tRight.EqualsConsistentHashCodeNoRewrite())
             throw new Exception(String.Format("{0} hashcode not equals consistent with {1}", left, right));
 
+         // end old test
+
          // Now do the same for our builder, without rewriting.
          // 1. Collect alphabet, and ranges.
-         tLeft = SimpleRegexBuilder.Default.Parse(left);
-         tRight = SimpleRegexBuilder.Default.Parse(right);
+         SimpleRegexBuilder tBuilder = _GetBuilder(left, right);
+
+         tLeft = tBuilder.Parse(left);
+         tRight = tBuilder.Parse(right);
+
+         if (!tLeft.SemanticEquals(tRight))
+            throw new Exception(String.Format("[BUILDER] {0} is not equal to {1}: assertion failure", left, right));
+
+         if (tLeft.EqualsConsistentHashCodeNoRewrite() != tRight.EqualsConsistentHashCodeNoRewrite())
+            throw new Exception(String.Format("[BUILDER] {0} hashcode not equals consistent with {1}", left, right));
+      }
+
+      private static SimpleRegexBuilder _GetBuilder(String left, String right)
+      {
+         SimpleRegex tLeft = SimpleRegexBuilder.Default.Parse(left);
+         SimpleRegex tRight = SimpleRegexBuilder.Default.Parse(right);
 
          HashSet<Char> tAlphabet = new HashSet<char>();
          foreach (Char tChar in tLeft.Letters())
@@ -41,15 +57,7 @@ namespace SimpleRegexIntersectorTest
          foreach (RangeRegex tRange in tRight.GetClonedRanges())
             tRanges.Add(tRange);
 
-         SimpleRegexBuilder tBuilder = new SimpleRegexBuilder(tAlphabet, tRanges);
-         tLeft = tBuilder.Parse(left);
-         tRight = tBuilder.Parse(right);
-
-         if (!tLeft.SemanticEquals(tRight))
-            throw new Exception(String.Format("[BUILDER] {0} is not equal to {1}: assertion failure", left, right));
-
-         if (tLeft.EqualsConsistentHashCodeNoRewrite() != tRight.EqualsConsistentHashCodeNoRewrite())
-            throw new Exception(String.Format("[BUILDER] {0} hashcode not equals consistent with {1}", left, right));
+         return new SimpleRegexBuilder(tAlphabet, tRanges);
       }
 
       private void AssertIntersects(String left, String right)
@@ -60,6 +68,11 @@ namespace SimpleRegexIntersectorTest
          //if (!tLeft.Intersects(tRight))
          if (!SimpleRegex.RewritesIntersect(tLeft, tRight))
             throw new Exception(String.Format("{0} does not intersect {1}: assertion failure", left, right));
+
+         // New Test
+         SimpleRegexBuilder tBuilder = _GetBuilder(left, right);
+         if (!tBuilder.Parse(left).Intersects(tBuilder.Parse(right)))
+            throw new Exception(String.Format("[BUILDER] {0} does not intersect {1}: assertion failure", left, right));
       }
 
       private void AssertDoesNotIntersect(String left, String right)
@@ -70,6 +83,11 @@ namespace SimpleRegexIntersectorTest
          //if (tLeft.Intersects(tRight))
          if (SimpleRegex.RewritesIntersect(tLeft, tRight))
             throw new Exception(String.Format("{0} intersects {1}: assertion failure", left, right));
+
+         // New Test
+         SimpleRegexBuilder tBuilder = _GetBuilder(left, right);
+         if (tBuilder.Parse(left).Intersects(tBuilder.Parse(right)))
+            throw new Exception(String.Format("[BUILDER] {0} intersects {1}: assertion failure", left, right));
       }
 
       private void AssertHaveCommonPrefix(String left, String right)
@@ -80,6 +98,11 @@ namespace SimpleRegexIntersectorTest
          //if (!tLeft.SharesCommonPrefixWith(tRight))
          if (!SimpleRegex.RewritesCommonPrefix(tLeft, tRight))
             throw new Exception(String.Format("{0} does not share a common prefix with {1}: assertion failure", left, right));
+
+         // New Test
+         SimpleRegexBuilder tBuilder = _GetBuilder(left, right);
+         if (!tBuilder.Parse(left).SharesCommonPrefixWith(tBuilder.Parse(right)))
+            throw new Exception(String.Format("[BUILDER] {0} does not share a common prefix with {1}: assertion failure", left, right));
       }
 
       [TestMethod]

@@ -1743,7 +1743,7 @@ namespace SimpleCC
          Root.VerifyTree();
 
          // Verify all nodes were primed, if one was not, it's not reachable from the Root.
-         // todo: note this won't catch things like "a".Terminal as it won't pass through Rule, maybe finda  good way to tackle that?
+         // todo: note this won't catch things like "a".Terminal as it won't pass through Rule, maybe find a good way to tackle that?
          foreach (ProductionNode tNode in _mPrimeTargets)
             if (!tNode.IsPrimed())
                throw new ParseException("unreachable terminal detected");
