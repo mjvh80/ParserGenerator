@@ -109,7 +109,7 @@ namespace XPath2Tests
    {
       protected override void DefineGrammar()
       {
-         ParseNode A = null, B = null; // no production for A
+         ParseNode A = null, B = null; // no production for B
          Root = Rule(() => A.FollowedBy(B));
          A = "a".Terminal();
       }

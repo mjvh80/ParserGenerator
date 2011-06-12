@@ -101,15 +101,16 @@ namespace SimpleCC
 
       public static ParseNode Terminal(this String terminalExpression)
       {
-         GeneralTerminal tTerminal = new GeneralTerminal(terminalExpression);
+         //GeneralTerminal tTerminal = new GeneralTerminal(terminalExpression);
 
-         return new TerminalParseNode(tTerminal);
+         return new TerminalParseNode(terminalExpression);
       }
 
       // todo: call this Regex instead?
       public static ParseNode RegexTerminal(this String terminalExpression)
       {
-         return new TerminalParseNode(new GeneralTerminal(terminalExpression, false));
+         throw new NotSupportedException("todo: escape variant");
+         //return new TerminalParseNode(new GeneralTerminal(terminalExpression, false));
       }
 
       /// <summary>
@@ -368,11 +369,18 @@ namespace SimpleCC
       {
          throw new Exception("FOO");
       }
+
+      public override void Accept(ParseNodeVisitor visitor)
+      {
+         visitor.Visit(this);
+      }
    }
 
    // value => choice made
    public class OptionalParseNode : ParseNode
    {
+      public ParseNode InnerNode { get { return node; } }
+
       protected ParseNode node;
       protected ParseTable<ParseNode> mParseTable;
       protected Int32 upperBound, requiredCount;
@@ -404,12 +412,12 @@ namespace SimpleCC
          node.VerifyTree();
       }
 
-      protected override bool PrimeInternal(Stack<ParseNode> s)
+      protected override bool PrimeInternal(ParserBase parser)
       {
          if (node == null)
             throw new ParseException("missing productions");
 
-         return node.Prime(s);
+         return node.Prime(parser);
 
          // used to build parsetable here, not necessary
       }
@@ -515,22 +523,72 @@ namespace SimpleCC
             return requiredCount == 0;
          }
       }
+
+      public override void Accept(ParseNodeVisitor visitor)
+      {
+         visitor.Visit(this);
+      }
    }
 
    public class TerminalParseNode : ParseNode
    {
-      public TerminalParseNode(GeneralTerminal pTerminal)
+      protected Boolean mAlphabetInit = false;
+
+      protected Char[] GetLetters()
       {
-         mTerminal = pTerminal;
+         return mInitialCompiledRegex.Letters();
       }
 
+      protected IEnumerable<RangeRegex> GetRanges()
+      {
+         return mInitialCompiledRegex.GetClonedRanges();
+      }
+
+      protected SimpleRegex mInitialCompiledRegex;
+      protected String mTerminalExpression;
+
       protected GeneralTerminal mTerminal;
+
+      public TerminalParseNode(String terminalExpr)
+      {
+         mTerminalExpression = terminalExpr;
+         mInitialCompiledRegex = SimpleRegexBuilder.Default.Parse(terminalExpr);
+      }
+
+      //public TerminalParseNode(GeneralTerminal pTerminal)
+      //{
+      //   mTerminal = pTerminal;
+      //}
+
 
       public override bool  ParsesTerminal(Terminal s)
       {
          System.Diagnostics.Debug.Assert(this.Mode == PrimeMode.Primed);
 
          return ((GeneralTerminal)s).SemanticEquals(mTerminal);
+      }
+
+      protected override bool PrimeInternal(ParserBase parser)
+      {
+         // Check if the alphabet was initialized.
+         if (!mAlphabetInit)
+         {
+            foreach (Char tLetter in GetLetters())
+               parser.AddLetter(tLetter);
+
+            foreach (RangeRegex tRange in GetRanges())
+               parser.AddRange(tRange);
+
+            mAlphabetInit = true;
+            return false;
+         }
+
+         if (parser.RegexBuilder == null)
+            return false; // we still need this
+
+         // Enough info to build our terminal.
+         mTerminal = new GeneralTerminal(mTerminalExpression, parser.RegexBuilder);
+         return base.PrimeInternal(parser);
       }
 
       public override SyntaxNode Parse(ParseContext c)
@@ -549,7 +607,7 @@ namespace SimpleCC
       {
          get
          {
-            if (base.Label == null)
+            if (base.Label == null && mTerminal != null)
                this.Label = "TERMINAL(" + mTerminal.ToString() + ")";
 
             return base.Label;
@@ -562,6 +620,7 @@ namespace SimpleCC
 
       public override Terminal[] GetDecisionTerminals()
       {
+         System.Diagnostics.Debug.Assert(this.Mode == PrimeMode.Primed);
          return new[] { mTerminal };
       }
 
@@ -575,16 +634,32 @@ namespace SimpleCC
 
          return false;
       }
+
+      public override void Accept(ParseNodeVisitor visitor)
+      {
+         visitor.Visit(this);
+      }
    }
 
    public class FollowedByParseNode : ParseNode
    {
+      public ParseNode First { get { return node; } }
+      public ParseNode Next { get { return otherNode; } }
+
       protected ParseNode node, otherNode;
 
       public FollowedByParseNode(ParseNode node, ParseNode otherNode)
       {
+         if (node == null || otherNode == null)
+            throw new ArgumentNullException("one node argument is null"); 
+
          this.node = node;
          this.otherNode = otherNode;
+      }
+
+      public override void Accept(ParseNodeVisitor visitor)
+      {
+         visitor.Visit(this);
       }
 
       internal override bool DerivesExclusivelyTo(ParseNode pNode)
@@ -620,14 +695,14 @@ namespace SimpleCC
          otherNode.VerifyTree();
       }
 
-      protected override bool PrimeInternal(Stack<ParseNode> s)
+      protected override bool PrimeInternal(ParserBase parser)
       {
          if (node == null || otherNode == null)
             throw new ParseException("missing productions");
 
-         Boolean tNodePrimed = node.Prime(s);
+         Boolean tNodePrimed = node.Prime(parser);
 
-         Boolean tOtherNodePrimed = otherNode.Prime(s);
+         Boolean tOtherNodePrimed = otherNode.Prime(parser);
 
          // In this case we need the other node for decision terminals, thus we could not proceed.
          if (tNodePrimed && node.Optional && !tOtherNodePrimed)
@@ -753,6 +828,16 @@ namespace SimpleCC
    // value => choice made out of options
    public class OrParseNode : ParseNode
    {
+      public IEnumerable<ParseNode> Nodes
+      {
+         get
+         {
+            yield return action;
+            foreach (ParseNode node in otherActions)
+               yield return node;
+         }
+      }
+
       protected ParseTable<ParseNode> mParseTable;
       protected ParseNode action;
       protected ParseNode[] otherActions;
@@ -797,20 +882,20 @@ namespace SimpleCC
             tOtherNode.VerifyTree();
       }
 
-      protected override bool PrimeInternal(Stack<ParseNode> s)
+      protected override bool PrimeInternal(ParserBase parser)
       {
          if (action == null)
             throw new ParseException("missing productions");
 
          Boolean tAllPrimed = true;
 
-         tAllPrimed = action.Prime(s) && tAllPrimed;
+         tAllPrimed = action.Prime(parser) && tAllPrimed;
          if (tAllPrimed)
             foreach (ParseNode tNode in otherActions)
                if (tNode == null)
                   throw new ParseException("missing production");
                else
-                  tAllPrimed = tNode.Prime(s) && tAllPrimed;
+                  tAllPrimed = tNode.Prime(parser) && tAllPrimed;
 
          if (!tAllPrimed)
             return false;
@@ -931,6 +1016,11 @@ namespace SimpleCC
             return action.Optional || otherActions.Any(n => n.Optional);
          }
       }
+
+      public override void Accept(ParseNodeVisitor visitor)
+      {
+         visitor.Visit(this);
+      }
    }
 
    public class SimpleParseNode : ParseNode
@@ -948,7 +1038,83 @@ namespace SimpleCC
       {
          return GetDecisionTerminalsDelegate();
       }
+
+      public override void Accept(ParseNodeVisitor visitor)
+      {
+         visitor.Visit(this);
+      }
    }
+
+   public class ParseNodeVisitor
+   {
+      public virtual void Visit(OrParseNode orNode) {}
+      public virtual void Visit(FollowedByParseNode followNode) { }
+      public virtual void Visit(TerminalParseNode terminalNode) { }
+      public virtual void Visit(LookaheadParseNode lookaheadNode) { }
+      public virtual void Visit(OptionalParseNode optionalNode) { }
+      public virtual void Visit(EOFNode eofNode) { }
+      public virtual void Visit(SimpleParseNode simpleNode) { }
+      public virtual void Visit(ProductionNode prodNode) { }
+   }
+
+   // todo: this won't work with looping!
+   public class TreeWalkingVisitor : ParseNodeVisitor
+   {
+      public override void Visit(FollowedByParseNode followNode)
+      {
+         base.Visit(followNode);
+         followNode.First.Accept(this);
+         followNode.Next.Accept(this);
+      }
+
+      public override void Visit(OptionalParseNode optionalNode)
+      {
+         base.Visit(optionalNode);
+         optionalNode.InnerNode.Accept(this);
+      }
+
+      public override void Visit(OrParseNode orNode)
+      {
+         base.Visit(orNode);
+         foreach (ParseNode tNode in orNode.Nodes)
+            tNode.Accept(this);
+      }
+
+      public override void Visit(ProductionNode prodNode)
+      {
+         base.Visit(prodNode);
+         prodNode.StartNode.Accept(this);
+      }
+   }
+
+   // implements a visitor to collect all chars / ranges in all regexes so we can normalize
+   //public class RegexBuilderVisitor : TreeWalkingVisitor
+   //{
+   //   protected HashSet<Char> mAlphabet = new HashSet<Char>();
+   //   protected HashSet<RangeRegex> mRanges = new HashSet<RangeRegex>();
+
+   //   public override void Visit(TerminalParseNode terminalNode)
+   //   {
+   //      foreach (Char tChar in terminalNode.GetLetters())
+   //         mAlphabet.Add(tChar);
+   //      foreach (RangeRegex tRange in terminalNode.GetRanges())
+   //         mRanges.Add(tRange);
+
+   //      base.Visit(terminalNode);
+   //   }
+
+   //   public override void Visit(ProductionNode prodNode)
+   //   {
+   //      prodNode.EnsureNode(); 
+   //      base.Visit(prodNode);
+   //   }
+
+   //   public SimpleRegexBuilder CreateBuilder()
+   //   {
+   //      Debug.Assert(mAlphabet.Count > 0); // that'd be weird wouldn't it
+   //      return new SimpleRegexBuilder(mAlphabet, mRanges);
+   //   }
+   //}
 
    public abstract class ParseNode
    {
@@ -970,9 +1136,11 @@ namespace SimpleCC
       {
          return false;
       }
-      
+
+      public abstract void Accept(ParseNodeVisitor visitor);
+
       //public Func<Stack<ParseNode>, Boolean> Primer;
-      protected virtual Boolean PrimeInternal(Stack<ParseNode> pNodeStack)
+      protected virtual Boolean PrimeInternal(ParserBase parser)
       {
          return true; // default primer
       }
@@ -1007,14 +1175,14 @@ namespace SimpleCC
       // Some nodes are primed based on their underlying node, such as optional nodes.
       internal virtual PrimeMode Mode { get; set; }
      
-      public Boolean Prime(Stack<ParseNode> primeStack) 
+      public Boolean Prime(ParserBase parser) 
       {
        
          switch (Mode)
          {
             case PrimeMode.None:
                Mode = PrimeMode.Priming;
-               if (PrimeInternal(primeStack))
+               if (PrimeInternal(parser))
                   Mode = PrimeMode.Primed;
                else
                {
@@ -1087,8 +1255,7 @@ namespace SimpleCC
        * by looking at intersection groups, and determining which group to go for during parsing (say A&C) and then deciding
        * on the lookahead.
        * */
-      //public LookaheadParseNode(IEnumerable<Terminal> pConflictingTerminals, ParseTable<ParseNode> origParseTable)
-      public LookaheadParseNode(Dictionary<Terminal, HashSet<ParseNode>> pConflictMap)
+      public LookaheadParseNode(Dictionary<Terminal, HashSet<ParseNode>> pConflictMap) // can pass builder here if necessary
       {
          Label = "LOOKAHEAD";
 
@@ -1146,7 +1313,8 @@ namespace SimpleCC
                foreach (GeneralTerminal tTerminal in tPair.Left.Where(t => !(t is DefaultTerminal)))
                   if (tFirstRegex == null)
                      tFirstRegex = tTerminal.SimpleRegex;
-                  else if (SimpleRegex.RewritesIntersect(tFirstRegex, tTerminal.SimpleRegex))
+                  //else if (SimpleRegex.RewritesIntersect(tFirstRegex, tTerminal.SimpleRegex))
+                  else if (tFirstRegex.Intersects(tTerminal.SimpleRegex)) 
                      throw new ParseException("inconclusive lookahead (a)");
 
             foreach (var tPair in tEntry.Value)
@@ -1157,7 +1325,8 @@ namespace SimpleCC
                   if (tDefaultTerminals.Count > 0) // see if we have a conflict
                   {
                      foreach (GeneralTerminal tOtherDefaultTerm in tDefaultTerminals)
-                        if (SimpleRegex.RewritesIntersect(tEntry.Key.SimpleRegex, tOtherDefaultTerm.SimpleRegex)) // sharing a prefix is OK here: we'll handle this in the parser, they should just not intersect
+                        //if (SimpleRegex.RewritesIntersect(tEntry.Key.SimpleRegex, tOtherDefaultTerm.SimpleRegex)) // sharing a prefix is OK here: we'll handle this in the parser, they should just not intersect
+                        if (tEntry.Key.SimpleRegex.Intersects(tOtherDefaultTerm.SimpleRegex)) 
                            throw new ParseException("2 terminals with defaults clashing"); // todo: obviously improve the msg here
                      }
                   
@@ -1165,6 +1334,7 @@ namespace SimpleCC
                }
 
                // NOTE: this used to use AND, changed to Sequence which makes sense :S
+               // NOTE: all regexes are already normalized, the result is also normalized
                SimpleRegex tLeftRegex = SimpleRegex.Sequence(tEntry.Key.SimpleRegex,
                   SimpleRegex.Choice(from t in tPair.Left where !(t is DefaultTerminal) select ((GeneralTerminal)t).SimpleRegex));
 
@@ -1175,9 +1345,8 @@ namespace SimpleCC
                      SimpleRegex tRightRegex = SimpleRegex.Sequence(tOtherEntry.Key.SimpleRegex,
                         SimpleRegex.Choice(from t in tOtherPair.Left where !(t is DefaultTerminal) select ((GeneralTerminal)t).SimpleRegex));
 
-                     // (tLeftRegex.Intersects(tRightRegex))
-                     // todo: could consider a sort of global rewrite, but e must know our complete alphabet then.
-                     if (SimpleRegex.RewritesIntersect(tLeftRegex, tRightRegex))
+                     //if (SimpleRegex.RewritesIntersect(tLeftRegex, tRightRegex))
+                     if (tLeftRegex.Intersects(tRightRegex))
                         throw new ParseException("inconclusive lookahead");
                   }
                }
@@ -1265,20 +1434,27 @@ namespace SimpleCC
 
          throw new ParseException("parse error"); // todo: improve error -> how, maybe name terminals (defaulting to strings?, reflection?)
       }
+
+      public override void Accept(ParseNodeVisitor visitor)
+      {
+         visitor.Visit(this);
+      }
    }
 
    public class ProductionNode : ParseNode
    {
+      public ParseNode StartNode { get { return mNode; } }
+
       protected ParseNode mNode;
       protected Func<ParseNode> mNodeGenerator;
       protected String mName;
 
-      public ProductionNode(Func<ParseNode> lazy) : this(null, lazy)
+      public ProductionNode(Func<ParseNode> nodeGenerator) : this(null, nodeGenerator)
       { }
 
-      public ProductionNode(String pName, Func<ParseNode> lazy)
+      public ProductionNode(String pName, Func<ParseNode> nodeGenerator)
       {
-         mNodeGenerator = lazy;
+         mNodeGenerator = nodeGenerator;
          mName = pName; // todo: check uniqueness of name
          Label = "PRODUCTION"; // todo?
       }
@@ -1293,11 +1469,18 @@ namespace SimpleCC
          mNode.VerifyTree();
       }
 
-      protected override bool PrimeInternal(Stack<ParseNode> s)
+      //internal void EnsureNode()
+      //{
+      //   if (mNode == null)
+      //      mNode = mNodeGenerator();
+      //}
+
+      protected override bool PrimeInternal(ParserBase parser)
       {
          // prevents things like : A -> B and B -> A
          // todo: it would be MUCH nicer if we could say which rule etc. Could we do this? Reflection (horrible?)?
-         if (mNode != null && !(mNode.IsPriming() || mNode.IsPrimed()))
+        
+         if (mNode != null && mNode.IsPriming())
             throw new ParseException("circular grammar: symbol node depends on a node that could not be primed");
 
          if (mNode == null)
@@ -1306,7 +1489,7 @@ namespace SimpleCC
          if (mNode == null)
             throw new ParseException("missing production");
 
-         Boolean tResult = mNode.Prime(s);
+         Boolean tResult = mNode.Prime(parser);
 
          if (tResult)
             Label = mNode.Label;
@@ -1355,6 +1538,11 @@ namespace SimpleCC
       {
          Debug.Assert(Mode == PrimeMode.Primed);
          return mNode.LookaheadTerminals(s, l);
+      }
+
+      public override void Accept(ParseNodeVisitor visitor)
+      {
+         visitor.Visit(this);
       }
    }
 
@@ -1414,6 +1602,8 @@ namespace SimpleCC
    public class GeneralTerminal : Terminal
    {
       protected String mExpression;
+      protected Boolean mEscape;
+
       protected Regex mRegex;
       protected SimpleRegex mSimpleRegex;
 
@@ -1425,19 +1615,33 @@ namespace SimpleCC
       // todo: remove once DefaultTerminal is no longer a GeneralTerminal.
       public GeneralTerminal() { }
 
-      public GeneralTerminal(String expr) : this(expr, false) { }
+      //public GeneralTerminal(String expr) : this(expr, false) { }
 
-      public GeneralTerminal(String expr, Boolean escape)
+      //public GeneralTerminal(String expr, Boolean escape)
+      //{
+      //   mExpression = expr;
+      //   mEscape = escape;
+
+      //   // todo: perhaps just using Regex.Escape would be better
+      //   mSimpleRegex = SimpleRegex.Parse(escape ? SimpleRegex.Escape(expr) : expr);
+      //   mRegex = new Regex(escape ? Regex.Escape(expr) : expr, RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace); // todo: options
+      //}
+
+      public GeneralTerminal(String expr, SimpleRegexBuilder regexBuilder)
       {
-         // todo: perhaps just using Regex.Escape would be better
-         mSimpleRegex = SimpleRegex.Parse(escape ? SimpleRegex.Escape(expr) : expr);
-         mRegex = new Regex(escape ? Regex.Escape(expr) : expr, RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace); // todo: options
          mExpression = expr;
+         mSimpleRegex = regexBuilder.Parse(expr);
+         mRegex = new Regex(expr, RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace); // todo: same as above
       }
 
       public override Terminal Clone()
       {
-         return new GeneralTerminal(mExpression);
+         GeneralTerminal tResult = new GeneralTerminal();
+         tResult.mExpression = this.mExpression;
+         tResult.mSimpleRegex = this.mSimpleRegex.Clone();
+         tResult.mRegex = this.mRegex;
+         return tResult;
+      //   return new GeneralTerminal(mExpression, mEscape); // do diff?
       }
 
       protected Boolean CheckCache(ParseContext ctx, out String rCacheResult)
@@ -1538,13 +1742,8 @@ namespace SimpleCC
       {
          if (pOther is GeneralTerminal)
          {
-            //SimpleRegex tLeft = mSimpleRegex;
-            //SimpleRegex tRight = ((GeneralTerminal)pOther).mSimpleRegex;
-            //SimpleRegex.Rewrite(ref tLeft, ref tRight);
-            
-            //return tLeft.SharesCommonPrefixWith(tRight);
-
-            return SimpleRegex.RewritesCommonPrefix(mSimpleRegex, ((GeneralTerminal)pOther).mSimpleRegex);
+            //return SimpleRegex.RewritesCommonPrefix(mSimpleRegex, ((GeneralTerminal)pOther).mSimpleRegex);
+            return mSimpleRegex.SharesCommonPrefixWith(((GeneralTerminal)pOther).mSimpleRegex);
          }
          else
             throw new InvalidOperationException("remove other terminals");
@@ -1566,7 +1765,8 @@ namespace SimpleCC
             return true;
 
          // todo: we must clone here but should look at if we could avoid that somehow
-         if (SimpleRegex.RewritesEqual(this.mSimpleRegex, tOther.mSimpleRegex))
+         //if (SimpleRegex.RewritesEqual(this.mSimpleRegex, tOther.mSimpleRegex))
+         if (this.mSimpleRegex.SemanticEquals(tOther.mSimpleRegex))
             return true;
 
          return false;
@@ -1586,7 +1786,8 @@ namespace SimpleCC
             return mHashCode.Value;
 
          // todo: this performs an unnecessary regex rewrite (!)
-         mHashCode = this.mSimpleRegex.EqualsConsistentHashCode(); // todo: may wish to try 
+      //   mHashCode = this.mSimpleRegex.EqualsConsistentHashCode(); // todo: may wish to try 
+         mHashCode = this.mSimpleRegex.EqualsConsistentHashCodeNoRewrite();
          return mHashCode.Value;
       }
    }
@@ -1606,10 +1807,10 @@ namespace SimpleCC
    {
       protected Dictionary<Terminal, T> Table = new Dictionary<Terminal, T>();
 
-      public void AddTerminal(String terminalStr, T node)
-      {
-         AddTerminal(new GeneralTerminal(terminalStr), node);
-      }
+      //public void AddTerminal(String terminalStr, T node)
+      //{
+      //   AddTerminal(new GeneralTerminal(terminalStr), node);
+      //}
 
       public void AddTerminal(Terminal pTerm, T node) 
       {
@@ -1671,13 +1872,38 @@ namespace SimpleCC
 
    public abstract class ParserBase
    {
+      public enum ParserState
+      {
+         None,
+         Priming,
+         Primed,
+         Verified
+      }
+
+      protected ParserState State { get; set; }
+
       protected List<ProductionNode> _mPrimeTargets = new List<ProductionNode>();
+      protected SimpleRegexBuilder mRegexBuilder;
+
+      protected HashSet<Char> mAlphabet = new HashSet<Char>();
+      protected HashSet<RangeRegex> mRangeSet = new HashSet<RangeRegex>();
       
       protected ParseNode Root;
 
       protected ParserBase()
       {
+         State = ParserState.None;
          DefineGrammar();
+      }
+
+      internal void AddLetter(Char letter)
+      {
+         mAlphabet.Add(letter);
+      }
+
+      internal void AddRange(RangeRegex range)
+      {
+         mRangeSet.Add(range);
       }
 
       protected ParseNode Rule(Func<ParseNode> definition)
@@ -1711,6 +1937,8 @@ namespace SimpleCC
 
       protected abstract void DefineGrammar();
 
+      public SimpleRegexBuilder RegexBuilder { get { return mRegexBuilder; } }
+
       protected abstract ParseContext GetContext();
 
       public ParserBase Build()
@@ -1718,25 +1946,29 @@ namespace SimpleCC
          if (Root == null)
             throw new Exception("no root defined");
 
-         if (Root.IsPrimed())
+         if (State != ParserState.None)
             throw new ParseException("can only call Build() once");
 
          // Prime.
-         Stack<ParseNode> tPrimeStack = new Stack<ParseNode>();
-
-#if false
-         tPrimeStack.Push(Root);
-         while (tPrimeStack.Count > 0)
-         {
-            tPrimeStack.Pop().Prime(tPrimeStack);
-         }
-#else
-         // todo: we *want* this, why does it not always work?
+     
+         // todo: we *want* this, why does it not always work? << this still applicable?
          // > this won't work because of the way a follow node is primed, it may be marked as primed but not fully primed internally (ie if the first node is not optional,
          // we don't need the second node primed.
-         while (!Root.IsPrimed())
-            Root.Prime(tPrimeStack); // todo: remove stack
-#endif
+
+         State = ParserState.Priming;
+
+         // Initial prime to collect alphabet.
+         Root.Prime(this);
+         Debug.Assert(mAlphabet.Count > 0);
+         mRegexBuilder = new SimpleRegexBuilder(mAlphabet, mRangeSet);
+
+         do
+         {
+            Root.Prime(this);
+         }
+         while (!Root.IsPrimed());
+
+         State = ParserState.Primed;
 
          // Second walk.
          // todo: also use this to verify all nodes are primed!
@@ -1747,6 +1979,8 @@ namespace SimpleCC
          foreach (ProductionNode tNode in _mPrimeTargets)
             if (!tNode.IsPrimed())
                throw new ParseException("unreachable terminal detected");
+
+         State = ParserState.Verified;
 
          return this;
       }
