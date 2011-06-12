@@ -987,20 +987,29 @@ namespace SimpleCC
          // todo: there is a way we can be much more efficient here.
          // instead of looping through the parsetable, we can lift off of .nets regex engine:
          // create a regex (( terminal 1) | ( terminal 2) | ... ), using named groups to distinguish the regexes.
-
-
          c.AdvanceInterleaved(); // todo: must integrate into walker EVEN NECESSARY NOW?
-         foreach (GeneralTerminal tTerminal in mParseTable.Terminals) // todo: remove anything but the general terminal
-            if (tTerminal.CanAdvance(c)) // todo: combine into optAdvance?
+         foreach(KeyValuePair<Terminal, ParseNode> tPair in mParseTable.KeyValues)  // todo: remove anything but the general terminal
+            if (tPair.Key.CanAdvance(c))
             {
-               //tTerminal.AdvanceTerminal(c);
-               SyntaxNode tResult = mParseTable[tTerminal].Parse(c); // todo: dict lookup is not necessary, store target node in terminal itself?
+               SyntaxNode tResult = tPair.Value.Parse(c);
                return Rewrite(new ChoiceSyntaxNode()
-                  {
-                     Children = new [] { tResult },
-                  }
+               {
+                  Children = new[] { tResult },
+               }
                );
             }
+
+         //foreach (GeneralTerminal tTerminal in mParseTable.Terminals) // todo: remove anything but the general terminal
+         //   if (tTerminal.CanAdvance(c)) // todo: combine into optAdvance?
+         //   {
+         //      //tTerminal.AdvanceTerminal(c);
+         //      SyntaxNode tResult = mParseTable[tTerminal].Parse(c); // todo: dict lookup is not necessary, store target node in terminal itself?
+         //      return Rewrite(new ChoiceSyntaxNode()
+         //         {
+         //            Children = new [] { tResult },
+         //         }
+         //      );
+         //   }
 
          RaiseExpectedTerminals(c, mParseTable.Terminals);
          throw new InvalidOperationException();
@@ -1799,6 +1808,21 @@ namespace SimpleCC
          mHashCode = this.mSimpleRegex.EqualsConsistentHashCodeNoRewrite();
          return mHashCode.Value;
       }
+
+      // The following avoids having to store a dictionary lookup elsewhere.
+      internal ParseNode ParentNode;
+      protected ParseNode mParseNode;
+      internal ParseNode Node 
+      {
+         get { return mParseNode; }
+         set
+         {
+            if (mParseNode != null)
+               throw new ParseException("Attempt to reuse terminal parse node.");
+
+            mParseNode = value;
+         }
+      }
    }
 
    // todo: this is a proof of concept, must use an efficient algorithm instead.
@@ -1879,6 +1903,7 @@ namespace SimpleCC
       }
 
       public IEnumerable<Terminal> Terminals { get { return Table.Keys; } }
+      public IEnumerable<KeyValuePair<Terminal, T>> KeyValues { get { return Table; } }
    }
 
    public abstract class ParserBase
