@@ -472,6 +472,10 @@ namespace SimpleRegexIntersector
          }
       }
 
+      // Force implentation.
+      public override abstract int GetHashCode();
+      public override abstract bool Equals(Object other);
+
       // R = A B
       internal SimpleRegex GetCommonPrefix(Dictionary<Pair, SimpleRegex> env, Int32 x, SimpleRegex r2)
       {
@@ -551,22 +555,31 @@ namespace SimpleRegexIntersector
       // Can we do better?
       // this is shitty.. and maps too many hashcodes on one, must improve..
       // todo: must seriously do better here
+
+      // We may have an issue with a recursive call here, ie 
+      // hashcode h = f(h), some function of itself.
+      // So, we need some fixed point, but not sure how yet.
       protected Int32 EqualsConsistentHashCode(Dictionary<SimpleRegex, Int32> env, Int32 cnt)
       {
          // No effect on hashocde
-         if (this.IsZero() || this == Empty)
-            return 0;
+         if (this.IsZero())
+            return 103093;
 
-         Char[] tLetters = Sigma(); 
-         
-         // todo: must we sort?
+         if (this == Empty)
+            return 54799;
+
+         Char[] tLetters = Sigma();
+
+         // This should not depend on letters used, as any two regexes that are equal don't necessarily have the same letters.
+         // note, however, that are regexes are rewritten.
          Array.Sort(tLetters);
 
          if (env.ContainsKey(this))
             return env[this];
 
          Int32 tResult = cnt;
-         env[this] = 2; // don't care, pick this
+         // uncomment, if using below recursive call (!)
+         //env[this] = 0;
 
          if (this is RangeRegex)
          {
@@ -577,14 +590,31 @@ namespace SimpleRegexIntersector
 
          }
 
-
          foreach (Char tLetter in tLetters)
-         {
-            tResult ^= tLetter.GetHashCode();
-            tResult ^= Choice(PartialDeriv(tLetter)).EqualsConsistentHashCode(env, cnt);
-         }
+            tResult ^= tLetters.GetHashCode();
 
-         return tResult;
+         // note: the below is incorrect
+         // the recursive call means we really need to find a fixed point, but i don't yet know how
+
+         // The idea here is to follow equals, by rewriting as choice of partial derivs, then calculating their hashcodes.
+         // This should give two equal regexes equal hashcodes.
+
+         //Int32 x = 0;
+         //foreach (Char tLetter in tLetters)
+         //{
+         //   // old
+         //   //tResult ^= tLetter.GetHashCode();
+         //   //tResult ^= Choice(PartialDeriv(tLetter)).EqualsConsistentHashCode(env, cnt);
+            
+         //   // new
+         //   //Int32 x = 0;
+         //   //foreach (SimpleRegex tRegex in PartialDeriv(tLetter))
+         //   //   x ^= tRegex.EqualsConsistentHashCode(env, cnt);   
+         //}
+
+         //tResult ^= x;
+
+         return tResult ^ tLetters.Length;
       }
 
       public Boolean SemanticEquals(SimpleRegex other)

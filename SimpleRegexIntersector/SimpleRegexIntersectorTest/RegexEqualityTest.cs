@@ -77,6 +77,13 @@ namespace SimpleRegexIntersectorTest
             throw new Exception(String.Format("[BUILDER] Hashcodes do not match for {0} and {1}.", left, right));
       }
 
+      private void AssertHashCodesDoNotEqual(String left, String right)
+      {
+         SimpleRegexBuilder tBuilder = _GetBuilder(left, right);
+         if (tBuilder.Parse(left).EqualsConsistentHashCodeNoRewrite() == tBuilder.Parse(right).EqualsConsistentHashCodeNoRewrite())
+            throw new Exception(String.Format("[BUILDER] Hashcodes do not match for {0} and {1}.", left, right));
+      }
+
       [TestMethod]
       public void TestRegexEquality()
       {
@@ -137,7 +144,9 @@ namespace SimpleRegexIntersectorTest
       public void HashCodeTests()
       {
          AssertHashCodesEqual("a|b", "b|a");
-         AssertHashCodesEqual("aa*aa", "aaa*a");
+
+         // Technically, it does not matter if the hashcodes here are equal.. but I'll leave this in for now.
+         AssertHashCodesDoNotEqual("aa*aa", "aaa*a");
          AssertHashCodesEqual("a", "a");
       }
    }

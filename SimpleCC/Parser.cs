@@ -101,7 +101,8 @@ namespace SimpleCC
 
       public static ParseNode Terminal(this String terminalExpression)
       {
-         //GeneralTerminal tTerminal = new GeneralTerminal(terminalExpression);
+         if (terminalExpression == null)
+            throw new ParseException("Terminal: expression is null");
 
          return new TerminalParseNode(terminalExpression);
       }
@@ -271,11 +272,12 @@ namespace SimpleCC
 
          AdvanceInterleaved();
 
+         Int32 tStartingPosition = Position;
          Int32 i;
          for (i = 0; i < str.Length && Position < Expression.Length && str[i] == Expression[Position]; i++, Position++) ;
 
          if (i != str.Length)
-            throw new ParseException("expected '{0}' around position {1}", str, Position.ToString()); // todo: improve with actual pos
+            throw new ParseException("expected '{0}' around position {1}", str, tStartingPosition.ToString());
 
          // todo: advance interleaved again?
 
@@ -361,7 +363,7 @@ namespace SimpleCC
 
          c.AdvanceInterleaved();
          if (c.Position != c.Expression.Length)
-            throw new ParseException("expected end of input at {0}", c.Position.ToString());
+            throw new ParseException("Expected end of input, but stopped at {0}.", c.Position.ToString());
 
          return Rewrite(new EofSyntaxNode()
          {
@@ -372,7 +374,7 @@ namespace SimpleCC
 
       public override bool LookaheadTerminals(Terminal s, HashSet<Terminal> l)
       {
-         throw new Exception("FOO");
+         throw new ParseException("Lookahead terminals for EOF needed.");
       }
 
       public override void Accept(ParseNodeVisitor visitor)
@@ -392,6 +394,9 @@ namespace SimpleCC
 
       public OptionalParseNode(ParseNode node, Int32 requiredCount, Int32 upperBound)
       {
+         if (node == null)
+            throw new ArgumentNullException("OptionalParseNode: inner node is null");
+
          this.upperBound = upperBound;
          this.requiredCount = requiredCount;
          this.node = node;
@@ -419,9 +424,6 @@ namespace SimpleCC
 
       protected override bool PrimeInternal(ParserBase parser)
       {
-         if (node == null)
-            throw new ParseException("missing productions");
-
          return node.Prime(parser);
 
          // used to build parsetable here, not necessary
@@ -702,9 +704,6 @@ namespace SimpleCC
 
       protected override bool PrimeInternal(ParserBase parser)
       {
-         if (node == null || otherNode == null)
-            throw new ParseException("missing productions");
-
          Boolean tNodePrimed = node.Prime(parser);
 
          Boolean tOtherNodePrimed = otherNode.Prime(parser);
@@ -849,6 +848,16 @@ namespace SimpleCC
 
       public OrParseNode(ParseNode action, ParseNode[] otherActions)
       {
+         if (action == null)
+            throw new ArgumentNullException("OrParseNode: left most node is null");
+
+         if (otherActions == null || otherActions.Length == 0)
+            throw new InvalidOperationException("Or: no argument nodes");
+
+         for (Int32 i = 0; i < otherActions.Length; i++)
+            if (otherActions[i] == null)
+               throw new ParseException("Or: one of the Or argument nodes is null");
+
          mParseTable = new ParseTable<ParseNode>();
          this.action = action;
          this.otherActions = otherActions;
@@ -889,18 +898,12 @@ namespace SimpleCC
 
       protected override bool PrimeInternal(ParserBase parser)
       {
-         if (action == null)
-            throw new ParseException("missing productions");
-
          Boolean tAllPrimed = true;
 
          tAllPrimed = action.Prime(parser) && tAllPrimed;
          if (tAllPrimed)
             foreach (ParseNode tNode in otherActions)
-               if (tNode == null)
-                  throw new ParseException("missing production");
-               else
-                  tAllPrimed = tNode.Prime(parser) && tAllPrimed;
+               tAllPrimed = tNode.Prime(parser) && tAllPrimed;
 
          if (!tAllPrimed)
             return false;
@@ -991,7 +994,7 @@ namespace SimpleCC
             if (tTerminal.CanAdvance(c)) // todo: combine into optAdvance?
             {
                //tTerminal.AdvanceTerminal(c);
-               SyntaxNode tResult = mParseTable[tTerminal].Parse(c);
+               SyntaxNode tResult = mParseTable[tTerminal].Parse(c); // todo: dict lookup is not necessary, store target node in terminal itself?
                return Rewrite(new ChoiceSyntaxNode()
                   {
                      Children = new [] { tResult },
@@ -1209,7 +1212,7 @@ namespace SimpleCC
                throw new InvalidOperationException("node not primed");
 
             case PrimeMode.Priming:
-               throw new ParseException("circular grammar");
+               throw new ParseException("A node depends on the decision terminals of itself.");
 
             default:
                return GetDecisionTerminals();
@@ -1406,7 +1409,7 @@ namespace SimpleCC
             if (tTerminal.OptAdvance(c))
             {
                // Choose a lookahead terminal, and then proceed.
-               foreach (var tPair in mLookaheadMap[tTerminal])
+               foreach (var tPair in mLookaheadMap[tTerminal]) // todo: we should be able to avoid this lookup
                   foreach (GeneralTerminal tLookaheadTerminal in tPair.Left)
                      if (tLookaheadTerminal is DefaultTerminal)
                      {
@@ -1507,7 +1510,8 @@ namespace SimpleCC
          get
          {
             if (mNode == null)
-               throw new ParseException("?");
+               throw new InvalidOperationException("node not primed");
+
             return mNode.Optional;
          }
       }
@@ -1805,9 +1809,11 @@ namespace SimpleCC
    * */
 
    // todo: idea
-   // refactor and move walker logic into context (pass a table to it?)
    // - currently a decision is made continuously, causing a a lot of unnecessary retrying..
    // - im not user if we could get that much faster, we still have to make the choice at each point, may be able to cache a prefix
+   // (2):
+   // - the or parsenode performs a dict lookup in its parse method, instead, the general terminal could store this target
+   //   allowing for a direct "jump" to the correct spot
    public class ParseTable<T> where T : class
    {
       protected Dictionary<Terminal, T> Table = new Dictionary<Terminal, T>();
