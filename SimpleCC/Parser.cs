@@ -1410,15 +1410,16 @@ namespace SimpleCC
          Int32 tDefaultPosition = -1; // position of last default match, parser will be greedy (todo: make setting? greedy or not)
          ParseNode tDefaultNode = null; // chosen if no lookahead matches.
 
-         foreach (GeneralTerminal tTerminal in mLookaheadMap.Keys)
+         //foreach (GeneralTerminal tTerminal in mLookaheadMap.Keys)
+         foreach (KeyValuePair<GeneralTerminal, List<Pair<HashSet<Terminal>, ParseNode>>> tTerminalListPair in mLookaheadMap)
          {
             //if (tTerminal.CanAdvance(c))
             //{
             //   tTerminal.AdvanceTerminal(c); // takes care of interleaving
-            if (tTerminal.OptAdvance(c))
+            if (tTerminalListPair.Key.OptAdvance(c))
             {
                // Choose a lookahead terminal, and then proceed.
-               foreach (var tPair in mLookaheadMap[tTerminal]) // todo: we should be able to avoid this lookup
+               foreach (var tPair in tTerminalListPair.Value)
                   foreach (GeneralTerminal tLookaheadTerminal in tPair.Left)
                      if (tLookaheadTerminal is DefaultTerminal)
                      {
