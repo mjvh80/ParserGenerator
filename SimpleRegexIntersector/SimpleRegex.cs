@@ -419,42 +419,6 @@ namespace SimpleRegexIntersector
             return Zero;
       }
 
-      /// <summary>
-      /// Determines whether the given regexes intersect, internally performs a rewrite.
-      /// </summary>
-      // todo: should just be called Intersect
-      public static Boolean RewritesIntersect(SimpleRegex left, SimpleRegex right)
-      {
-         SimpleRegex.CloneAndRewrite(ref left, ref right);
-         return left.Intersects(right);
-      }
-
-      /// <summary>
-      /// Determines whether given regexes are equal (rewrites internally).
-      /// </summary>
-      /// <param name="left"></param>
-      /// <param name="right"></param>
-      /// <returns></returns>
-      // todo: rename to Equal
-      public static Boolean RewritesEqual(SimpleRegex left, SimpleRegex right)
-      {
-         SimpleRegex.CloneAndRewrite(ref left, ref right);
-         return left.SemanticEquals(new HashSet<Pair>(), right);
-         //return left.SemanticEquals(right);
-      }
-
-      /// <summary>
-      /// Determines if the given regexes share a common prefix. Internally clones and rewrites.
-      /// </summary>
-      /// <param name="left"></param>
-      /// <param name="right"></param>
-      /// <returns></returns>
-      public static Boolean RewritesCommonPrefix(SimpleRegex left, SimpleRegex right)
-      {
-         SimpleRegex.CloneAndRewrite(ref left, ref right);
-         return left.SharesCommonPrefixWith(right);
-      }
-
       // todo: compare a|b with b|a gives error...
       // note: does not rewrite, and can change the 
       public Boolean Intersects(SimpleRegex other)
@@ -575,12 +539,8 @@ namespace SimpleRegexIntersector
          return true;
       }
 
-      public Int32 EqualsConsistentHashCode()
-      {
-         return Clone().Rewrite().EqualsConsistentHashCode(new Dictionary<SimpleRegex, Int32>(), 1);
-      }
-
       // todo: this really sucks balls, but I'll address that later
+      // todo: check if the clone is needed and rename
       public Int32 EqualsConsistentHashCodeNoRewrite()
       {
          return Clone().EqualsConsistentHashCode(new Dictionary<SimpleRegex, Int32>(), 1);
@@ -726,21 +686,10 @@ namespace SimpleRegexIntersector
             //yield return range;
       }
 
-      // Rewrites both in the same "context".
-      // Returns *new* regular expressions.
-      public static void CloneAndRewrite(ref SimpleRegex left, ref SimpleRegex right)
-      {
-         // for now, simply create a choice, this may not suffice if we ever decide to do more
-         // clever rewriting, eg by optimizing the tree
-         SimpleRegex tResult = Choice(left.Clone(), right.Clone()).Rewrite();
-         left = ((ChoiceRegex)tResult).Left;
-         right = ((ChoiceRegex)tResult).Right;
-      }
-
-
       // Rewriting support for ranges and negation.
       // Does not clone, changes tree.
       // todo: instead, clone here rather than above?
+      [Obsolete("to be removed", true)]
       internal SimpleRegex Rewrite()
       {
          SimpleRegex tResult = this;
@@ -1930,7 +1879,7 @@ namespace SimpleRegexIntersector
       public override bool Equals(object obj)
       {
          RangeRegex tOther = obj as RangeRegex;
-         return tOther != null && tOther.Low == this.Low && tOther.High == this.High; // TODO: must check negation here
+         return tOther != null && tOther.Low == this.Low && tOther.High == this.High && tOther.Negated == this.Negated;
       }
 
       public Boolean OverlapsWith(RangeRegex other)
@@ -1940,7 +1889,7 @@ namespace SimpleRegexIntersector
 
       public override int GetHashCode()
       {
-         return Low.GetHashCode() ^ High.GetHashCode(); // todo: add negation into this
+         return Low.GetHashCode() ^ High.GetHashCode() ^ Negated.GetHashCode();
       }
 
       internal override bool IsEmpty()

@@ -12,26 +12,12 @@ namespace SimpleRegexIntersectorTest
    {
       private void AssertRegexEquals(String left, String right)
       {
-         SimpleRegex tLeft = SimpleRegex.Parse(left);
-         SimpleRegex tRight = SimpleRegex.Parse(right);
-
-         if (!SimpleRegex.RewritesEqual(tLeft, tRight))
-            throw new Exception(String.Format("{0} is not equal to {1}: assertion failure", left, right));
-
-         // todo: api isnt so nice, and here we do a rewrite again.. but it's for testing
-         SimpleRegex.CloneAndRewrite(ref tLeft, ref tRight);
-
-         if (tLeft.EqualsConsistentHashCodeNoRewrite() != tRight.EqualsConsistentHashCodeNoRewrite())
-            throw new Exception(String.Format("{0} hashcode not equals consistent with {1}", left, right));
-
-         // end old test
-
          // Now do the same for our builder, without rewriting.
          // 1. Collect alphabet, and ranges.
          SimpleRegexBuilder tBuilder = _GetBuilder(left, right);
 
-         tLeft = tBuilder.Parse(left);
-         tRight = tBuilder.Parse(right);
+         SimpleRegex tLeft = tBuilder.Parse(left);
+         SimpleRegex tRight = tBuilder.Parse(right);
 
          if (!tLeft.SemanticEquals(tRight))
             throw new Exception(String.Format("[BUILDER] {0} is not equal to {1}: assertion failure", left, right));
@@ -62,13 +48,6 @@ namespace SimpleRegexIntersectorTest
 
       private void AssertIntersects(String left, String right)
       {
-         SimpleRegex tLeft = SimpleRegex.Parse(left);
-         SimpleRegex tRight = SimpleRegex.Parse(right);
-         //SimpleRegex.Rewrite(ref tLeft, ref tRight);
-         //if (!tLeft.Intersects(tRight))
-         if (!SimpleRegex.RewritesIntersect(tLeft, tRight))
-            throw new Exception(String.Format("{0} does not intersect {1}: assertion failure", left, right));
-
          // New Test
          SimpleRegexBuilder tBuilder = _GetBuilder(left, right);
          if (!tBuilder.Parse(left).Intersects(tBuilder.Parse(right)))
@@ -77,13 +56,6 @@ namespace SimpleRegexIntersectorTest
 
       private void AssertDoesNotIntersect(String left, String right)
       {
-         SimpleRegex tLeft = SimpleRegex.Parse(left);
-         SimpleRegex tRight = SimpleRegex.Parse(right);
-         //SimpleRegex.Rewrite(ref tLeft, ref tRight);
-         //if (tLeft.Intersects(tRight))
-         if (SimpleRegex.RewritesIntersect(tLeft, tRight))
-            throw new Exception(String.Format("{0} intersects {1}: assertion failure", left, right));
-
          // New Test
          SimpleRegexBuilder tBuilder = _GetBuilder(left, right);
          if (tBuilder.Parse(left).Intersects(tBuilder.Parse(right)))
@@ -92,17 +64,17 @@ namespace SimpleRegexIntersectorTest
 
       private void AssertHaveCommonPrefix(String left, String right)
       {
-         SimpleRegex tLeft = SimpleRegex.Parse(left);
-         SimpleRegex tRight = SimpleRegex.Parse(right);
-         //SimpleRegex.Rewrite(ref tLeft, ref tRight);
-         //if (!tLeft.SharesCommonPrefixWith(tRight))
-         if (!SimpleRegex.RewritesCommonPrefix(tLeft, tRight))
-            throw new Exception(String.Format("{0} does not share a common prefix with {1}: assertion failure", left, right));
-
          // New Test
          SimpleRegexBuilder tBuilder = _GetBuilder(left, right);
          if (!tBuilder.Parse(left).SharesCommonPrefixWith(tBuilder.Parse(right)))
             throw new Exception(String.Format("[BUILDER] {0} does not share a common prefix with {1}: assertion failure", left, right));
+      }
+
+      private void AssertHashCodesEqual(String left, String right)
+      {
+         SimpleRegexBuilder tBuilder = _GetBuilder(left, right);
+         if (tBuilder.Parse(left).EqualsConsistentHashCodeNoRewrite() != tBuilder.Parse(right).EqualsConsistentHashCodeNoRewrite())
+            throw new Exception(String.Format("[BUILDER] Hashcodes do not match for {0} and {1}.", left, right));
       }
 
       [TestMethod]
@@ -164,11 +136,9 @@ namespace SimpleRegexIntersectorTest
       [TestMethod]
       public void HashCodeTests()
       {
-      //   Assert.AreEqual(SimpleRegex.Parse("a").EqualsConsistentHashCode(), SimpleRegex.Parse("a").EqualsConsistentHashCode());
-      //   Assert.AreEqual(SimpleRegex.Parse("a|b").EqualsConsistentHashCode(), SimpleRegex.Parse("b|a").EqualsConsistentHashCode());
-         Assert.AreEqual(SimpleRegex.Parse("aa*aa").EqualsConsistentHashCode(), SimpleRegex.Parse("aaa*a").EqualsConsistentHashCode());
-         Assert.AreEqual(SimpleRegex.Parse("a").EqualsConsistentHashCode(), SimpleRegex.Parse("a").EqualsConsistentHashCode());
-         Assert.AreEqual(SimpleRegex.Parse("a").EqualsConsistentHashCode(), SimpleRegex.Parse("a").EqualsConsistentHashCode());
+         AssertHashCodesEqual("a|b", "b|a");
+         AssertHashCodesEqual("aa*aa", "aaa*a");
+         AssertHashCodesEqual("a", "a");
       }
    }
 }

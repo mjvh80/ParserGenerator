@@ -156,6 +156,11 @@ namespace SimpleCC
 
       public static ParseNode FollowedBy(this ParseNode node, ParseNode otherNode)
       {
+         if (node == null)
+            throw new ParseException("FollowedBy: left node is null, this could indicate a production is not defined");
+         if (otherNode == null)
+            throw new ParseException("FollowedBy: right node is null, this could indicate a production is not defined");
+
          return new FollowedByParseNode(node, otherNode);
       }
 

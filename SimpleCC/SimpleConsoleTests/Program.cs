@@ -47,8 +47,8 @@ namespace SimpleConsoleTests
                tLeft = ((ChoiceRegex)tRewrite).Left;
                tRight = ((ChoiceRegex)tRewrite).Right;
 
-               Console.WriteLine("Rewritten (1) hashcode: " + tLeft.EqualsConsistentHashCode() + " " + tLeft);
-               Console.WriteLine("Rewritten (2) hashcode: " + tRight.EqualsConsistentHashCode() + " " + tRight);
+               Console.WriteLine("Rewritten (1) hashcode: " + tLeft.EqualsConsistentHashCodeNoRewrite() + " " + tLeft);
+               Console.WriteLine("Rewritten (2) hashcode: " + tRight.EqualsConsistentHashCodeNoRewrite() + " " + tRight);
 
                Console.WriteLine("Equal: " + tLeft.SemanticEquals(tRight));
                // Commented out, as the access of these methods has changed
