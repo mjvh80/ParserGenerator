@@ -106,7 +106,9 @@ namespace SimpleRegexIntersector
 
    public class SimpleRegexBuilder
    {
-      public static SimpleRegexBuilder Default = new SimpleRegexBuilder();
+      public static SimpleRegexBuilder Default = new SimpleRegexBuilder().Build();
+
+      protected Boolean mBuilt = false;
 
       internal HashSet<Char> mAlphabet;
       internal HashSet<RangeRegex> mRangeSet;
@@ -119,27 +121,55 @@ namespace SimpleRegexIntersector
 
       public SimpleRegexBuilder(HashSet<Char> alphabet, HashSet<RangeRegex> rangeSet) // todo: i think another type for ranges here may be better
       {
-         mAlphabet = alphabet ?? new HashSet<Char>(); // todo: copy instead?
+         if (alphabet == null)
+            mAlphabet = new HashSet<char>();
+         else
+            mAlphabet = new HashSet<char>(alphabet);
+
+         if (rangeSet == null)
+            mRangeSet = new HashSet<RangeRegex>();
+         else
+            mRangeSet = new HashSet<RangeRegex>(rangeSet);
+      }
+
+      public void AddLetter(Char letter)
+      {
+         if (mBuilt)
+            throw new InvalidOperationException("SimpleRegexBuilder: can not add letter when built");
+         mAlphabet.Add(letter);
+      }
+
+      public void AddRange(RangeRegex range)
+      {
+         if (mBuilt)
+            throw new InvalidOperationException("SimpleRegexBuilder: can not add range when built");
+         mRangeSet.Add(range);
+      }
+
+      public SimpleRegexBuilder Build()
+      {
+         if (mBuilt)
+            throw new InvalidOperationException("SimpleRegexBuilder: already built");
 
 #if DEBUG
-         if (rangeSet != null)
-            foreach (RangeRegex tRange in rangeSet)
-               if (!alphabet.Contains(tRange.Low) || !alphabet.Contains(tRange.High))
+         if (mRangeSet != null)
+            foreach (RangeRegex tRange in mRangeSet)
+               if (!mAlphabet.Contains(tRange.Low) || !mAlphabet.Contains(tRange.High))
                   throw new InvalidOperationException("invalid range: boundaries not included in alphabet");
 
          if (mAlphabet.Contains(mMagicMarker)) // todo: must ensure this never happens, this is a safety catch for now
             throw new Exception("magic marker is used");
 #endif
 
-         mRangeSet = CreateDisjointRangeSet(rangeSet);
+         mRangeSet = CreateDisjointRangeSet(mRangeSet);
 
          // Update the alphabet.
          foreach (RangeRegex tRange in mRangeSet)
          {
-            alphabet.Add(tRange.Low);
-            alphabet.Add(tRange.High);
+            mAlphabet.Add(tRange.Low);
+            mAlphabet.Add(tRange.High);
          }
-         
+
          // Build marker map.
          Char tMarkerStart = 'A';// '\uf000'; // say, must find something "proper" todo
          foreach (RangeRegex tDisjointRange in mRangeSet)
@@ -149,6 +179,9 @@ namespace SimpleRegexIntersector
 
             mRangeMarkerMap.Add(tDisjointRange, tMarkerStart += '\x0001');
          }
+
+         mBuilt = true;
+         return this;
       }
 
       protected static HashSet<RangeRegex> CreateDisjointRangeSet(IEnumerable<RangeRegex> rangeSet)
@@ -162,14 +195,25 @@ namespace SimpleRegexIntersector
          return tDisjointSet;
       }
 
+      protected void EnsureBuilt()
+      {
+         if (!mBuilt)
+            throw new InvalidOperationException("SimpleRegexBuilder: not built");
+      }
+
+      public Boolean IsBuilt { get { return mBuilt; } }
+
       public SimpleRegex Parse(String regexExpr)
       {
+         EnsureBuilt();
          SimpleRegex tResult = SimpleRegex.Parse(regexExpr);
          return Normalize(tResult);
       }
 
       protected SimpleRegex Normalize(SimpleRegex targetRegex)
       {
+         EnsureBuilt();
+
          if (mAlphabet.Count == 0) // nothing to normalize against
             return targetRegex;
 
@@ -572,7 +616,7 @@ namespace SimpleRegexIntersector
 
          // This should not depend on letters used, as any two regexes that are equal don't necessarily have the same letters.
          // note, however, that are regexes are rewritten.
-         Array.Sort(tLetters);
+         // Array.Sort(tLetters); // don't need to sort, ^ is commutative and associative
 
          if (env.ContainsKey(this))
             return env[this];
@@ -581,17 +625,8 @@ namespace SimpleRegexIntersector
          // uncomment, if using below recursive call (!)
          //env[this] = 0;
 
-         if (this is RangeRegex)
-         {
-            RangeRegex tSelf = (RangeRegex)this;
-
-            // [a-g] = a | b | ... | g
-            // pd(c) = (c | (a | b | d | .. | g))(c) = { empty } + {} = { empty } 
-
-         }
-
          foreach (Char tLetter in tLetters)
-            tResult ^= tLetters.GetHashCode();
+            tResult ^= tLetter.GetHashCode();
 
          // note: the below is incorrect
          // the recursive call means we really need to find a fixed point, but i don't yet know how

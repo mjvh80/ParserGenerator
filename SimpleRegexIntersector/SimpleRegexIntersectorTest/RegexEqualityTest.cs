@@ -43,7 +43,7 @@ namespace SimpleRegexIntersectorTest
          foreach (RangeRegex tRange in tRight.GetClonedRanges())
             tRanges.Add(tRange);
 
-         return new SimpleRegexBuilder(tAlphabet, tRanges);
+         return new SimpleRegexBuilder(tAlphabet, tRanges).Build();
       }
 
       private void AssertIntersects(String left, String right)
@@ -145,8 +145,13 @@ namespace SimpleRegexIntersectorTest
       {
          AssertHashCodesEqual("a|b", "b|a");
 
-         // Technically, it does not matter if the hashcodes here are equal.. but I'll leave this in for now.
-         AssertHashCodesDoNotEqual("aa*aa", "aaa*a");
+         AssertHashCodesEqual("a..b", "(a|a)..b");
+         AssertHashCodesEqual("a|a|a|a", "a");
+
+         AssertHashCodesEqual("[a-c]*", "(a|b|c)*");
+
+         // It does not matter if they are not equal.
+   //      AssertHashCodesDoNotEqual("aa*aa", "aaa*a");
          AssertHashCodesEqual("a", "a");
       }
    }

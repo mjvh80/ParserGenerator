@@ -139,6 +139,11 @@ namespace SimpleCC
          return Or(node, terminalStr.Terminal());
       }
 
+      public static ParseNode Or(this ParseNode node, ParseNode otherNode)
+      {
+         return Or(node, new ParseNode[] { otherNode });
+      }
+
       // todo: check count of params, do like followedby?
       public static ParseNode Or(this ParseNode action, params ParseNode[] otherActions)
       {
@@ -386,9 +391,9 @@ namespace SimpleCC
    // value => choice made
    public class OptionalParseNode : ParseNode
    {
-      public ParseNode InnerNode { get { return node; } }
+      public ParseNode InnerNode { get { return mInnerNode; } }
 
-      protected ParseNode node;
+      protected ParseNode mInnerNode;
       protected ParseTable<ParseNode> mParseTable;
       protected Int32 upperBound, requiredCount;
 
@@ -399,7 +404,7 @@ namespace SimpleCC
 
          this.upperBound = upperBound;
          this.requiredCount = requiredCount;
-         this.node = node;
+         this.mInnerNode = node;
          mParseTable = new ParseTable<ParseNode>();
       }
 
@@ -411,7 +416,7 @@ namespace SimpleCC
             return true;
 
          if (!this.Optional)
-            return node.DerivesExclusivelyTo(pNode);
+            return mInnerNode.DerivesExclusivelyTo(pNode);
          
          return false;
       }
@@ -419,12 +424,17 @@ namespace SimpleCC
       internal override void VerifyTree()
       {
          base.VerifyTree();
-         node.VerifyTree();
+         mInnerNode.VerifyTree();
+      }
+
+      internal override void InitRegexBuilder(SimpleRegexBuilder builder, ParserBase parser)
+      {
+         mInnerNode.InitRegexBuilder(builder, parser);
       }
 
       protected override bool PrimeInternal(ParserBase parser)
       {
-         return node.Prime(parser);
+         return mInnerNode.Prime(parser);
 
          // used to build parsetable here, not necessary
       }
@@ -434,7 +444,7 @@ namespace SimpleCC
          get
          {
             // An optional node is primed if it's underlying node is.
-            return node == null ? PrimeMode.None : node.Mode;
+            return mInnerNode == null ? PrimeMode.None : mInnerNode.Mode;
          }
          set
          {
@@ -447,7 +457,7 @@ namespace SimpleCC
          get
          {
             if (base.Label == null && this.IsPrimed())
-               Label = "OPTIONAL(" + node.Label + ")";
+               Label = "OPTIONAL(" + mInnerNode.Label + ")";
 
             return base.Label;
          }
@@ -461,19 +471,19 @@ namespace SimpleCC
       {
          Debug.Assert(Mode == PrimeMode.Primed);
 
-         return node.GetDecisionTerminals();
+         return mInnerNode.GetDecisionTerminals();
       }
 
       public override SyntaxNode Parse(ParseContext c)
       {
          //Debug.Assert(Mode == PrimeMode.Primed);
-         Debug.Assert(node.IsPrimed());
+         Debug.Assert(mInnerNode.IsPrimed());
 
          List<SyntaxNode> tResult = new List<SyntaxNode>();
 
          // Parse minimal count.
          for (Int32 i = 0; i < requiredCount; i++)
-            tResult.Add(node.Parse(c)); // simply go in
+            tResult.Add(mInnerNode.Parse(c)); // simply go in
 
      //    Debug.Assert(this.IsPrimed()); // this would be an error...
 
@@ -483,10 +493,10 @@ namespace SimpleCC
          {
             c.AdvanceInterleaved(); // todo: should not be needed.. check
 
-            foreach (GeneralTerminal tTerminal in node.GetDecisionTerminals()) // > todo cache
+            foreach (GeneralTerminal tTerminal in mInnerNode.GetDecisionTerminals()) // > todo cache
                if (tTerminal.CanAdvance(c))
                {
-                  tResult.Add(node.Parse(c));
+                  tResult.Add(mInnerNode.Parse(c));
                   goto next;
                }
 
@@ -505,7 +515,7 @@ namespace SimpleCC
       {
          Debug.Assert(Mode == PrimeMode.Primed);
 
-         if (node.LookaheadTerminals(s, termList) && requiredCount > 0)
+         if (mInnerNode.LookaheadTerminals(s, termList) && requiredCount > 0)
             return true; // required, should stop
          else
             return false;
@@ -515,7 +525,7 @@ namespace SimpleCC
       {
          Debug.Assert(Mode == PrimeMode.Primed);
 
-         return node.ParsesTerminal(s);
+         return mInnerNode.ParsesTerminal(s);
       }
 
       public override bool Optional
@@ -539,7 +549,7 @@ namespace SimpleCC
 
    public class TerminalParseNode : ParseNode
    {
-      protected Boolean mAlphabetInit = false;
+      protected Boolean mShouldInitBuilder = true;
 
       protected Char[] GetLetters()
       {
@@ -575,23 +585,24 @@ namespace SimpleCC
          return ((GeneralTerminal)s).SemanticEquals(mTerminal);
       }
 
-      protected override bool PrimeInternal(ParserBase parser)
+      internal override void InitRegexBuilder(SimpleRegexBuilder builder, ParserBase parser)
       {
-         // Check if the alphabet was initialized.
-         if (!mAlphabetInit)
+         if (mShouldInitBuilder)
          {
             foreach (Char tLetter in GetLetters())
-               parser.AddLetter(tLetter);
+               builder.AddLetter(tLetter);
 
             foreach (RangeRegex tRange in GetRanges())
-               parser.AddRange(tRange);
+               builder.AddRange(tRange);
 
-            mAlphabetInit = true;
-            return false;
+            mShouldInitBuilder = false;
          }
+      }
 
-         if (parser.RegexBuilder == null)
-            return false; // we still need this
+      protected override bool PrimeInternal(ParserBase parser)
+      {
+         Debug.Assert(parser.RegexBuilder.IsBuilt);
+         Debug.Assert(!mShouldInitBuilder);
 
          // Enough info to build our terminal.
          mTerminal = new GeneralTerminal(mTerminalExpression, parser.RegexBuilder);
@@ -702,6 +713,12 @@ namespace SimpleCC
          otherNode.VerifyTree();
       }
 
+      internal override void InitRegexBuilder(SimpleRegexBuilder builder, ParserBase parser)
+      {
+         node.InitRegexBuilder(builder, parser);
+         otherNode.InitRegexBuilder(builder, parser);
+      }
+
       protected override bool PrimeInternal(ParserBase parser)
       {
          Boolean tNodePrimed = node.Prime(parser);
@@ -752,7 +769,8 @@ namespace SimpleCC
          get
          {
             if (base.Label == null && node.IsPrimed() && otherNode.IsPrimed())
-               this.Label = "FOLLOW(" + node.Label + ", " + otherNode.Label + ")";
+               this.Label = "FOLLOW"; // todo
+          //     this.Label = "FOLLOW(" + node.Label + ", " + otherNode.Label + ")";
 
             return base.Label;
          }
@@ -894,6 +912,12 @@ namespace SimpleCC
          action.VerifyTree();
          foreach (ParseNode tOtherNode in otherActions)
             tOtherNode.VerifyTree();
+      }
+
+      internal override void InitRegexBuilder(SimpleRegexBuilder builder, ParserBase parser)
+      {
+         foreach (ParseNode tNode in this.Nodes)
+            tNode.InitRegexBuilder(builder, parser);
       }
 
       protected override bool PrimeInternal(ParserBase parser)
@@ -1075,6 +1099,7 @@ namespace SimpleCC
    }
 
    // todo: this won't work with looping!
+   // looping caused by productionnodes, keep hashset?
    public class TreeWalkingVisitor : ParseNodeVisitor
    {
       public override void Visit(FollowedByParseNode followNode)
@@ -1185,7 +1210,9 @@ namespace SimpleCC
          if (!this.IsPrimed())
             throw new ParseException("unprimed node detected"); // todo: better error?
       }
-      
+
+      internal virtual void InitRegexBuilder(SimpleRegexBuilder builder, ParserBase parser) { }
+
       internal enum PrimeMode { None = 0, Priming, Primed };
       
       //protected PrimeMode Mode = PrimeMode.None;
@@ -1386,6 +1413,11 @@ namespace SimpleCC
          return tResult;
       }
 
+      internal override void InitRegexBuilder(SimpleRegexBuilder builder, ParserBase parser)
+      {
+         throw new InvalidOperationException();
+      }
+
       // A lookahead node parser the terminal if the key is equal (ie it parses) and the actual lookahead selector
       // is the default route.
       public override bool ParsesTerminal(Terminal pTerminal)
@@ -1484,6 +1516,7 @@ namespace SimpleCC
 
       internal override void  VerifyTree()
       {
+         base.VerifyTree();
          mNode.VerifyTree();
       }
 
@@ -1493,6 +1526,23 @@ namespace SimpleCC
       //      mNode = mNodeGenerator();
       //}
 
+      protected Boolean mRegexBuilderInit = false;
+
+      internal override void InitRegexBuilder(SimpleRegexBuilder builder, ParserBase parser)
+      {
+         if (mRegexBuilderInit)
+            return;
+
+         if (mNode == null)
+            mNode = mNodeGenerator();
+
+         if (mNode == null)
+            throw new ParseException("Missing production");
+
+         mRegexBuilderInit = true; // don't reenter
+         mNode.InitRegexBuilder(builder, parser);
+      }
+
       protected override bool PrimeInternal(ParserBase parser)
       {
          // prevents things like : A -> B and B -> A
@@ -1501,11 +1551,11 @@ namespace SimpleCC
          if (mNode != null && mNode.IsPriming())
             throw new ParseException("circular grammar: symbol node depends on a node that could not be primed");
 
-         if (mNode == null)
-            mNode = mNodeGenerator();
+         //if (mNode == null)
+         //   mNode = mNodeGenerator();
 
-         if (mNode == null)
-            throw new ParseException("missing production");
+         //if (mNode == null)
+         //   throw new ParseException("missing production");
 
          Boolean tResult = mNode.Prime(parser);
 
@@ -1912,6 +1962,7 @@ namespace SimpleCC
       public enum ParserState
       {
          None,
+         InitializingRegexBuilder,
          Priming,
          Primed,
          Verified
@@ -1922,25 +1973,15 @@ namespace SimpleCC
       protected List<ProductionNode> _mPrimeTargets = new List<ProductionNode>();
       protected SimpleRegexBuilder mRegexBuilder;
 
-      protected HashSet<Char> mAlphabet = new HashSet<Char>();
-      protected HashSet<RangeRegex> mRangeSet = new HashSet<RangeRegex>();
-      
+      //protected HashSet<Char> mAlphabet = new HashSet<Char>();
+      //protected HashSet<RangeRegex> mRangeSet = new HashSet<RangeRegex>();
+
       protected ParseNode Root;
 
       protected ParserBase()
       {
          State = ParserState.None;
          DefineGrammar();
-      }
-
-      internal void AddLetter(Char letter)
-      {
-         mAlphabet.Add(letter);
-      }
-
-      internal void AddRange(RangeRegex range)
-      {
-         mRangeSet.Add(range);
       }
 
       protected ParseNode Rule(Func<ParseNode> definition)
@@ -1992,12 +2033,18 @@ namespace SimpleCC
          // > this won't work because of the way a follow node is primed, it may be marked as primed but not fully primed internally (ie if the first node is not optional,
          // we don't need the second node primed.
 
-         State = ParserState.Priming;
+         State = ParserState.InitializingRegexBuilder;
 
          // Initial prime to collect alphabet.
-         Root.Prime(this);
-         Debug.Assert(mAlphabet.Count > 0);
-         mRegexBuilder = new SimpleRegexBuilder(mAlphabet, mRangeSet);
+         SimpleRegexBuilder tBuilder = new SimpleRegexBuilder();
+
+         Root.InitRegexBuilder(tBuilder, this);
+
+         mRegexBuilder = tBuilder.Build();
+
+         //mRegexBuilder = new SimpleRegexBuilder(mAlphabet, mRangeSet);
+
+         State = ParserState.Priming;
 
          do
          {
