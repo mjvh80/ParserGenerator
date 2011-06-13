@@ -1796,7 +1796,7 @@ namespace SimpleCC
 
          Match tFirstMatch = mRegex.Match(ctx.Expression, ctx.Position);
          if (!tFirstMatch.Success) // todo: check index as well?
-            throw new ParseException("failed to advance terminal"); // todo: improve
+            throw new ParseException("Failed to advanced terminel. Expected to match {0} starting at {1}: {2}", mRegex, ctx.Position.ToString(), ctx.Expression.Substring(ctx.Position)); // todo: improve
 
          SetCache(ctx, tFirstMatch);
          

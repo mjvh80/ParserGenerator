@@ -65,14 +65,26 @@ namespace XPath2Tests
       {
          String tSimpleBnf = @"
 
-            Root ::= Foo | Bar;
+            Root ::= Foo+ | Bar | Baz;
             Foo ::= ""foo"";
             Bar ::= ""bar"";
+            Baz ::= ""baz"" Foo?;
 ";
+
+         // Baz ::= ""baz"" Foo?
+         // Baz ::= Foo? | ( Bar | Baz );
 
          BnfParser tBnfParser = new BnfParser(tSimpleBnf);
 
          tBnfParser.Parse("bar");
+         tBnfParser.Parse("baz");
+         tBnfParser.Parse("baz foo");
+
+         try
+         {
+            tBnfParser.Parse("baz foo foo");
+         }
+         catch (ParseException) { }// ok
 
       }
    }

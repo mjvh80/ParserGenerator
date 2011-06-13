@@ -66,14 +66,19 @@ namespace SimpleCC
             mProductionLookup = new Dictionary<string, ParseNode>();
 
 
-            ParseNode Production = null, Name = null, Definition = null,
-               Literal = null, OccurencyMarker = null, Unit = null;
+            ParseNode Production = null, Name = null, Definition = null, Sequence = null,
+               Literal = null, OccurencyMarker = null, Unit = null, NewLine = null;
 
             Root = Rule(() => Production.OneOrMore().EOF());
 
             Production = Rule(() => Name.FollowedBy("::=".FollowedBy(Definition).FollowedBy(";")));
 
-            Definition = Rule(() => Unit.FollowedBy("\\|".FollowedBy(Definition).ZeroOrMore()));
+            // carriage return with optional linefeed, or linefeed
+            //NewLine = "\r".FollowedBy("\n".Optional()).Or("\n"); // todo.. needs bit of work with whitespace in context
+
+            Definition = Rule(() => Sequence.FollowedBy("\\|".FollowedBy(Definition).ZeroOrMore()));
+
+            Sequence = Rule(() => Unit.FollowedBy(Unit.ZeroOrMore()));
 
             Unit = Rule(() => "\\(".FollowedBy(Definition).FollowedBy("\\)").Or(Literal).Or(Name).FollowedBy(OccurencyMarker.Optional()));
 
@@ -93,6 +98,10 @@ namespace SimpleCC
                {
                   for (Int32 i = 0; i < n.Children.Length; i++) // eof is already flattened out
                      n.Children[i].Compile();
+
+                  // Add Eof.
+                  mActualParser.AddEofToRoot();
+
                   return null;
                });
                
@@ -123,7 +132,6 @@ namespace SimpleCC
                return null;
             });
 
-
             Name.SetCompiler(n =>
             {
                Func<ParseNode> tInner = () =>
@@ -152,10 +160,18 @@ namespace SimpleCC
                return tLeft;
             });
 
+            Sequence.SetCompiler(n =>
+            {
+               Expression tLeft = n.Children[0].Compile();
+               for (Int32 i = 1; i < n.Children.Length; i += 1)
+                  tLeft = Expression.Call(GetFollowedByMethod(), tLeft, n.Children[i].Compile());
+               return tLeft;
+            });
+
             Unit.SetCompiler(n =>
             {
                Expression tValue = null;
-               Expression tMarker = null;
+               String tMarker = null;
 
                Int32 next = 1; // child that is occurency marker
 
@@ -173,15 +189,14 @@ namespace SimpleCC
                   tValue = n.Children[0].Compile();
 
                if (next < n.Children.Length) // have occurency marker
-                  tMarker = n.Children[next].Compile();
+                  tMarker = n.Children[next].Value as String;
 
                if (tMarker == null)
                   return tValue;
                else
-                  return Expression.Call(GetOccurencyMethod((String)((ConstantExpression)tMarker).Value), tValue);
+                  return Expression.Call(GetOccurencyMethod(tMarker), tValue);
             });
 
-            OccurencyMarker.SetCompiler(n => Expression.Constant(n.Value));
 
          }
 
@@ -215,6 +230,11 @@ namespace SimpleCC
          {
             Root = node;
          }
+
+         public void AddEofToRoot()
+         {
+            Root = Root.EOF();
+         }
       }
 
       #region Utilities
@@ -222,6 +242,11 @@ namespace SimpleCC
       protected static MethodInfo GetOrMethod()
       {
          return typeof(ParserExtensions).GetMethod("Or", BindingFlags.Static | BindingFlags.Public, null, new Type[] { typeof(ParseNode), typeof(ParseNode) }, null);
+      }
+
+      protected static MethodInfo GetFollowedByMethod()
+      {
+         return typeof(ParserExtensions).GetMethod("FollowedBy", BindingFlags.Static | BindingFlags.Public, null, new Type[] { typeof(ParseNode), typeof(ParseNode) }, null);
       }
 
       protected static String StripQuotes(String str)
