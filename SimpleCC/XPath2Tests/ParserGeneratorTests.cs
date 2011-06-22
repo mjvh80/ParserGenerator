@@ -150,6 +150,24 @@ namespace XPath2Tests
       }
    }
 
+   internal class CircularGrammar3 : TestParser
+   {
+      protected override void DefineGrammar()
+      {
+         Root = Rule(() => Root);
+      }
+   }
+
+   internal class CircularGrammar4 : TestParser
+   {
+      protected override void DefineGrammar()
+      {
+         ParseNode A = null;
+         Root = Rule(() => A);
+         A = Rule(() => A.Or(A));
+      }
+   }
+
    internal class SimpleMath : TestParser
    {
       protected ParseNode Multiplication, Expr, Factor, Constant, Digit;
@@ -255,6 +273,8 @@ namespace XPath2Tests
       {
          TestBadGrammar(new CircularGrammar1(), "grammar is circular, should not build");
          TestBadGrammar(new CircularGrammar2(), "grammar is circular, should not build");
+         TestBadGrammar(new CircularGrammar3(), "grammar is circular, root refers to root without other choices");
+         TestBadGrammar(new CircularGrammar4(), "grammar is circular, should not build");
       }
 
       [TestMethod]
@@ -317,5 +337,46 @@ namespace XPath2Tests
 
       }
 
+      [TestMethod]
+      public void ReflectionTest()
+      {
+         String foobar = "";
+         Assert.AreEqual("foobar", GetName(() => foobar));
+         //Define(() => foobar, Foobar);
+
+         Assert.AreEqual("foobar", Define(() => foobar, "raboof"));
+         Assert.AreEqual("raboof", foobar);
+
+
+         // Foobar = Define("Foobar", () => Foobar.Or(Baz))
+      }
+
+      protected String InitFoobar(out String param)
+      {
+         param = "";
+         return "";
+      }
+
+      protected String Define<T>(Expression<Func<T>> fn, String definition)
+      {
+         MemberExpression memExpr = ((MemberExpression)fn.Body);
+
+         Expression assignDefinition = Expression.Assign(memExpr, Expression.Constant(definition));
+         
+         // Perform assignment.
+         ((Func<String>)Expression.Lambda(assignDefinition).Compile())();
+
+         return memExpr.Member.Name;
+      }
+
+      protected String GetName(Object anonymous)
+      {
+         return anonymous.GetType().GetProperties()[0].Name;
+      }
+
+      protected String GetName<T>(Expression<Func<T>> fn)
+      {
+         return ((MemberExpression)fn.Body).Member.Name;
+      }
    }
 }

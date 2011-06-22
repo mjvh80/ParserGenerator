@@ -2008,6 +2008,30 @@ namespace SimpleCC
          return tNode;
       }
 
+      /// <summary>
+      /// Usage:
+      /// ParseNode A;
+      /// Define(() => A, () => ... definition ... );
+      /// This is equivalent* to doing:
+      /// Define(out A, "A", () => ... definition ... );
+      /// 
+      /// * note: this relies partly on the naming of the compiler generated field
+      /// </summary>
+      /// <param name="target"></param>
+      /// <param name="definition"></param>
+      /// <returns></returns>
+      protected ParseNode Define(Expression<Func<ProductionNode>> target, Func<ParseNode> definition)
+      {
+         MemberExpression tMemExpr = target.Body as MemberExpression;
+         if (tMemExpr == null)
+            throw new Exception("expected a member expression");
+
+         ProductionNode tResult = new ProductionNode(tMemExpr.Member.Name, definition);
+         // Perform assignment.
+         ((Func<ProductionNode>)Expression.Lambda(Expression.Assign(tMemExpr, Expression.Constant(tResult))).Compile())();
+         return tResult;
+      }
+
       protected void Define(out ParseNode target, Func<ParseNode> definition)
       {
          Define(out target, null, definition);
@@ -2046,11 +2070,8 @@ namespace SimpleCC
 
          State = ParserState.Priming;
 
-         do
-         {
-            Root.Prime(this);
-         }
-         while (!Root.IsPrimed());
+         if (!Root.Prime(this))
+            throw new ParseException("Failed to prime root. This could indicate your grammar is circular.");
 
          State = ParserState.Primed;
 
