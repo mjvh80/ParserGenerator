@@ -3,7 +3,17 @@ Overview
 ========
 
 The purspose of this project is to provide with a very simple to use parser generator with a natural C# syntax.
+For example, a very simple expression language:::
 
+         Define(() => Root, () => Expr);
+         Define(() => Expr, () => Multiplication.FollowedBy("\\+".FollowedBy(Multiplication).Optional()));
+         Define(() => Multiplication, () => Factor.FollowedBy("\\*".FollowedBy(Multiplication).Optional()));
+         Define(() => Factor, () => Constant.Or("\\(".FollowedBy(Expr, "\\)")));
+         Define(() => Constant, () => Digit.OneOrMore()); //> emit list of digits (1 or more)
+         Define(() => Digit, () => "1|2|3|4|5|6|7|8|9|0".Terminal());
+
+The resulting graph can be "flattened" and compiled easily using .NET Expression trees, for example.		 
+		 
 License
 =======
 
