@@ -14,7 +14,7 @@ using System.Linq.Expressions;
 //  - the terminal is not cleared until Advance(terminal) is called.
 //  - how to deal with 1 lookahead? cache 2?
 //
-// 2. EOF should become a special terminal, EofTerminal.
+// 2. Eof should become a special terminal, EofTerminal.
 // 3. Having introduced more general terminals gives us a problem where our current algorithm fails and lookahead is insufficient.
 //    eg /a/ vs /attribute::* (or to select a node //attribute/...) etc.
 //    To solve this we need to introduce a general terminal, this terminal is a regular expression.
@@ -31,15 +31,32 @@ using System.Linq.Expressions;
 // 4. Create a BNF parser written in our C# parser that can read and generate a parser based on a BNF input file.
 
 // Known issues:
-// 1. / vs //.., / should accept an EOF terminal as lookahead, how to do with SimpleRegex?
+// 1. / vs //.., / should accept an Eof terminal as lookahead, how to do with SimpleRegex?
 
 namespace SimpleCC
 {
-
    public class ParseException : Exception
    {
       public ParseException(String msg) : base(msg) { }
       public ParseException(String format, params Object[] args) : base(String.Format(format, args)) { }
+      public ParseException(String msg, Exception inner) : base(msg, inner) { }
+      public ParseException(Exception inner, String format, params Object[] args) : base(String.Format(format, args), inner) { }
+   }
+
+   internal static class _Utils
+   {
+      public static Boolean All<T>(IEnumerable<T> list, Func<T, T, Boolean> predicate)
+      {
+         IEnumerator<T> tEnumerator = list.GetEnumerator();
+         for(Int32 i = 1; tEnumerator.MoveNext(); i++)
+            foreach (T tOther in list.Skip(i))
+            {
+               if (!predicate(tEnumerator.Current, tOther))
+                  return false;
+            }
+
+         return true;
+      }
    }
 
    public static class ParserExtensions
@@ -99,6 +116,7 @@ namespace SimpleCC
       //   return null;
       //}
 
+      // todo: overload to deal better with escaping?
       public static ParseNode Terminal(this String terminalExpression)
       {
          if (terminalExpression == null)
@@ -107,21 +125,14 @@ namespace SimpleCC
          return new TerminalParseNode(terminalExpression);
       }
 
-      // todo: call this Regex instead?
-      public static ParseNode RegexTerminal(this String terminalExpression)
-      {
-         throw new NotSupportedException("todo: escape variant");
-         //return new TerminalParseNode(new GeneralTerminal(terminalExpression, false));
-      }
-
       /// <summary>
-      /// Same as .FollowedBy(new EOFNode()).
+      /// Same as .FollowedBy(new EofNode()).
       /// </summary>
       /// <param name="node"></param>
       /// <returns></returns>
-      public static ParseNode EOF(this ParseNode node)
+      public static ParseNode Eof(this ParseNode node)
       {
-         return node.FollowedBy(new EOFNode());
+         return node.FollowedBy(new EofNode());
       }
 
       public static ParseNode Or(this String terminalStr, String otherTerminal)
@@ -141,23 +152,23 @@ namespace SimpleCC
 
       public static ParseNode Or(this ParseNode node, ParseNode otherNode)
       {
-         return Or(node, new ParseNode[] { otherNode });
+         return new OrParseNode(new ParseNode[] { node, otherNode });
       }
 
-      // todo: check count of params, do like followedby?
       public static ParseNode Or(this ParseNode action, params ParseNode[] otherActions)
       {
-         ParseTable<ParseNode> tParseTable = new ParseTable<ParseNode>();
-         return new OrParseNode(action, otherActions);
+         ParseNode[] tArgs = new ParseNode[otherActions.Length + 1];
+         tArgs[0] = action;
+         Array.Copy(otherActions, 0, tArgs, 1, otherActions.Length);
+         return new OrParseNode(tArgs);
       }
 
-      // todo: use BCL or put somewhere else
-      public static T[] Merge<T>(this T[] left, T[] right)
+      public static ParseNode Or(this ParseNode action, params Object[] otherActions)
       {
-         T[] tResult = new T[left.Length + right.Length];
-         Array.Copy(left, tResult, left.Length);
-         Array.Copy(right, 0, tResult, left.Length, right.Length);
-         return tResult;
+         // ok, lazy.
+         return Or(action, (from n in otherActions
+                            select
+                               n is String ? Terminal((String)n) : (ParseNode)n).ToArray());
       }
 
       public static ParseNode FollowedBy(this ParseNode node, ParseNode otherNode)
@@ -245,35 +256,35 @@ namespace SimpleCC
          Position = 0;
       }
 
+      public ParseException CreateParseException(String msg)
+      {
+         return CreateParseException(msg, null);
+      }
+
+      public virtual ParseException CreateParseException(String format, params Object[] args)
+      {
+         String tActualMsg = String.Format(format, args);
+         return new ParseException("Error parsing production {0} around position {1}: {2}", CurrentlyParsingProduction.Name, Position, tActualMsg);
+      }
+
       public String Expression;
-      public String CurrentToken; // todo: remove
+
+      /// <summary>
+      /// Production currently being parsed, currently used for error handling.
+      /// </summary>
+      public ProductionNode CurrentlyParsingProduction { get; set; }
 
       public Int32 Position { get; set; } // todo: check usages, external
 
       /// <summary>
-      /// Advances to the next token, ignoring interleaved whitespace.
-      /// Updates the CurrentToken.
-      /// </summary>
-      /// <returns></returns>
-      public String Advance() 
-      {
-         // Advance interleaved characters such as whitespace and/or comments.
-         AdvanceInterleaved();
-
-         // Return the next token.
-         return (CurrentToken = AdvanceToken());
-      }
-
-      /// <summary>
       /// Advance, raising an exception if the found terminal does not match the string found.
-      /// Updates CurrentToken.
       /// </summary>
       /// <param name="str"></param>
       /// <returns></returns>
       protected void Advance(String str) 
       {
          if (str == null)
-            throw new ArgumentNullException("Advance: str is null");
+            throw new ArgumentNullException("str");
 
          AdvanceInterleaved();
 
@@ -282,11 +293,14 @@ namespace SimpleCC
          for (i = 0; i < str.Length && Position < Expression.Length && str[i] == Expression[Position]; i++, Position++) ;
 
          if (i != str.Length)
-            throw new ParseException("expected '{0}' around position {1}", str, tStartingPosition.ToString());
+         {
+            Position = tStartingPosition; // reset for correct position in exception
+            throw CreateParseException("Expected '{0}'", str);
+            //throw new ParseException("Expected '{0}' around position {1}", str, tStartingPosition.ToString());
+         }
 
          // todo: advance interleaved again?
 
-         //return (CurrentToken = str);
       }
 
       public String Advance(Terminal term)
@@ -309,57 +323,29 @@ namespace SimpleCC
 
          return tResult;
       }
+    
+      //  public String Peek()
       
       /// <summary>
-      /// Peeks: returns the next token that would be returned were Advance called.
+      /// Default implementation ignores space as defined by Char.IsWhitespace. If you wish to ignore comments
+      /// you must implement this method.
+      /// todo: we should allow one to define interleaving just like regular syntax.
+      /// todo: implement using Char.IsWhitespace
       /// </summary>
-      /// <returns></returns>
-      // todo: employ peek caching?
-      public String Peek()
-      {
-         Int32 tOldPos = Position;
-         String tResult = Advance(); // todo: dont set currentotken.....
-         Position = tOldPos;
-         return tResult;
-      }
-
       public virtual void AdvanceInterleaved() { }
-
-      /// <summary>
-      /// Used to parse "simple" tokens, language constructs.
-      /// Things like strings, numbers etc. should be coded directly. In other words, this should parse
-      /// any parts of the BNF contained in quotes.
-      /// 
-      /// Default implementation parses according to ???
-      /// </summary>
-      /// <returns></returns>
-      protected virtual String AdvanceToken()
-      {
-         String tResult = "";
-         for (; Position < Expression.Length; Position++)
-         {
-            Char tChar = Expression[Position];
-           // if (Char.IsLetter(tChar) || Char.IsDigit(tChar) || Char.IsSymbol(tChar))
-            if (!Char.IsWhiteSpace(tChar)) // todo...
-               tResult += tChar;
-            else
-               break;
-         }
-         return tResult;
-      }
    }
 
-   public class EOFNode : ParseNode
+   public class EofNode : ParseNode
    {
-      public EOFNode()
+      public EofNode()
       {
-         this.Label = "EOF";
+         this.mName = "«eof»";
       }
 
       public override Terminal[] GetDecisionTerminals()
       {
          Debug.Assert(Mode == PrimeMode.Primed);
-         throw new ParseException("EOF decision terminals needed");
+         throw new InvalidOperationException("Eof decision terminals needed");
       }
 
       public override SyntaxNode Parse(ParseContext c)
@@ -367,6 +353,7 @@ namespace SimpleCC
          Debug.Assert(Mode == PrimeMode.Primed);
 
          c.AdvanceInterleaved();
+
          if (c.Position != c.Expression.Length)
             throw new ParseException("Expected end of input, but stopped at {0}.", c.Position.ToString());
 
@@ -379,12 +366,18 @@ namespace SimpleCC
 
       public override bool LookaheadTerminals(Terminal s, HashSet<Terminal> l)
       {
-         throw new ParseException("Lookahead terminals for EOF needed.");
+         throw new InvalidOperationException("Lookahead terminals for Eof needed.");
       }
 
       public override void Accept(ParseNodeVisitor visitor)
       {
          visitor.Visit(this);
+      }
+
+      internal override StringBuilder ToString(StringBuilder builder, HashSet<ParseNode> seenNodes)
+      {
+         builder.Append(Name);
+         return base.ToString(builder, seenNodes);
       }
    }
 
@@ -395,15 +388,15 @@ namespace SimpleCC
 
       protected ParseNode mInnerNode;
       protected ParseTable<ParseNode> mParseTable;
-      protected Int32 upperBound, requiredCount;
+      protected Int32 mUpperBound, mRequiredCount;
 
       public OptionalParseNode(ParseNode node, Int32 requiredCount, Int32 upperBound)
       {
          if (node == null)
             throw new ArgumentNullException("OptionalParseNode: inner node is null");
 
-         this.upperBound = upperBound;
-         this.requiredCount = requiredCount;
+         this.mUpperBound = upperBound;
+         this.mRequiredCount = requiredCount;
          this.mInnerNode = node;
          mParseTable = new ParseTable<ParseNode>();
       }
@@ -452,21 +445,6 @@ namespace SimpleCC
          }
       }
 
-      public override string Label
-      {
-         get
-         {
-            if (base.Label == null && this.IsPrimed())
-               Label = "OPTIONAL(" + mInnerNode.Label + ")";
-
-            return base.Label;
-         }
-         protected set
-         {
-            base.Label = value;
-         }
-      }
-
       public override Terminal[] GetDecisionTerminals()
       {
          Debug.Assert(Mode == PrimeMode.Primed);
@@ -482,13 +460,13 @@ namespace SimpleCC
          List<SyntaxNode> tResult = new List<SyntaxNode>();
 
          // Parse minimal count.
-         for (Int32 i = 0; i < requiredCount; i++)
+         for (Int32 i = 0; i < mRequiredCount; i++)
             tResult.Add(mInnerNode.Parse(c)); // simply go in
 
      //    Debug.Assert(this.IsPrimed()); // this would be an error...
 
          // Parse optional max count.
-         Int32 tCountLeft = (upperBound == Int32.MaxValue ? Int32.MaxValue : (upperBound - requiredCount));
+         Int32 tCountLeft = (mUpperBound == Int32.MaxValue ? Int32.MaxValue : (mUpperBound - mRequiredCount));
          for (Int32 i = 0; i < tCountLeft && tCountLeft > 0; i++)
          {
             c.AdvanceInterleaved(); // todo: should not be needed.. check
@@ -515,7 +493,7 @@ namespace SimpleCC
       {
          Debug.Assert(Mode == PrimeMode.Primed);
 
-         if (mInnerNode.LookaheadTerminals(s, termList) && requiredCount > 0)
+         if (mInnerNode.LookaheadTerminals(s, termList) && mRequiredCount > 0)
             return true; // required, should stop
          else
             return false;
@@ -537,13 +515,31 @@ namespace SimpleCC
             // Not requiring this simplifies FollowedBy, and priming no longer needs a stack to keep track
             // of nodes still needing priming.
           
-            return requiredCount == 0;
+            return mRequiredCount == 0;
          }
       }
 
       public override void Accept(ParseNodeVisitor visitor)
       {
          visitor.Visit(this);
+      }
+
+      internal override StringBuilder ToString(StringBuilder builder, HashSet<ParseNode> seenNodes)
+      {
+         if (HasToStringVisited(builder, seenNodes))
+            return builder;
+
+         builder.Append('(');
+         mInnerNode.ToString(builder, seenNodes);
+         builder.Append(')');
+         if (mRequiredCount == 0 && mUpperBound == 1)
+            builder.Append('?');
+         else if (mRequiredCount == 0)
+            builder.Append('*');
+         else
+            builder.Append('+'); // for now
+
+         return base.ToString(builder, seenNodes);
       }
    }
 
@@ -580,7 +576,7 @@ namespace SimpleCC
 
       public override bool  ParsesTerminal(Terminal s)
       {
-         System.Diagnostics.Debug.Assert(this.Mode == PrimeMode.Primed);
+         Debug.Assert(this.Mode == PrimeMode.Primed);
 
          return ((GeneralTerminal)s).SemanticEquals(mTerminal);
       }
@@ -621,21 +617,6 @@ namespace SimpleCC
          });
       }
 
-      public override string Label
-      {
-         get
-         {
-            if (base.Label == null && mTerminal != null)
-               this.Label = "TERMINAL(" + mTerminal.ToString() + ")";
-
-            return base.Label;
-         }
-         protected set
-         {
-            base.Label = value;
-         }
-      }
-
       public override Terminal[] GetDecisionTerminals()
       {
          System.Diagnostics.Debug.Assert(this.Mode == PrimeMode.Primed);
@@ -644,18 +625,20 @@ namespace SimpleCC
 
       public override bool LookaheadTerminals(Terminal s, HashSet<Terminal> l)
       {
-         if (this.ParsesTerminal(s))
-         {
-            //l.Add(new DefaultTerminal());
-            return true;
-         }
-
-         return false;
+         return this.ParsesTerminal(s);
       }
 
       public override void Accept(ParseNodeVisitor visitor)
       {
          visitor.Visit(this);
+      }
+
+      internal override StringBuilder ToString(StringBuilder builder, HashSet<ParseNode> seenNodes)
+      {
+         if (mName == null)
+            return builder.Append('"').Append(mTerminal.ToString()).Append('"');
+         else
+            return builder.Append(mName);
       }
    }
 
@@ -764,27 +747,24 @@ namespace SimpleCC
          }
       }
 
-      public override string Label
-      {
-         get
-         {
-            if (base.Label == null && node.IsPrimed() && otherNode.IsPrimed())
-               this.Label = "FOLLOW"; // todo
-          //     this.Label = "FOLLOW(" + node.Label + ", " + otherNode.Label + ")";
-
-            return base.Label;
-         }
-         protected set
-         {
-            base.Label = value;
-         }
-      }
-
       public override Terminal[] GetDecisionTerminals()
       {
          Debug.Assert(Mode == PrimeMode.Primed);
 
-         return node.Optional ? node.DoGetDecisionTerminals().Merge(otherNode.DoGetDecisionTerminals()) : node.DoGetDecisionTerminals();
+         if (node.Optional)
+         {
+            Terminal[] tNodeTerms = node.DoGetDecisionTerminals();
+            Terminal[] tOtherNodeTerms = otherNode.DoGetDecisionTerminals();
+
+            Terminal[] tResult = new Terminal[tNodeTerms.Length + tOtherNodeTerms.Length];
+            Array.Copy(tNodeTerms, tResult, tNodeTerms.Length);
+            Array.Copy(tOtherNodeTerms, 0, tResult, tNodeTerms.Length, tOtherNodeTerms.Length);
+            return tResult;
+         }
+         else
+         {
+            return node.DoGetDecisionTerminals();
+         }
       }
 
       public override Boolean ParsesTerminal(Terminal pTerminal)
@@ -831,9 +811,14 @@ namespace SimpleCC
          }
          
          // Else: lookahead found in node, if optional should continue looking in otherNode.
-         
-         /* else */ if (node.LookaheadTerminals(s, termList) && !node.Optional) // todo: should we even check optional here? ie node should not return true if optional?
+
+         /* else */
+         if (node.LookaheadTerminals(s, termList)) // && !node.Optional)
+         {
+            // Note: if the node is non-optional, it's lookahead method must return true by definition.
+            Debug.Assert(!node.Optional, "non-optional node should return an exhaustive lookahead list");
             return true; // exhausted
+         }
          else
             return otherNode.LookaheadTerminals(s, termList) && !otherNode.Optional;
       }
@@ -845,6 +830,18 @@ namespace SimpleCC
             return node.Optional && otherNode.Optional;
          }
       }
+
+      internal override StringBuilder ToString(StringBuilder builder, HashSet<ParseNode> seenNodes)
+      {
+         if (HasToStringVisited(builder, seenNodes))
+            return builder;
+
+         node.ToString(builder, seenNodes);
+         builder.Append(' ');
+         otherNode.ToString(builder, seenNodes);
+
+         return base.ToString(builder, seenNodes);
+      }
    }
 
    // value => choice made out of options
@@ -854,31 +851,52 @@ namespace SimpleCC
       {
          get
          {
-            yield return action;
-            foreach (ParseNode node in otherActions)
+            foreach (ParseNode node in mActions)
                yield return node;
          }
       }
 
       protected ParseTable<ParseNode> mParseTable;
-      protected ParseNode action;
-      protected ParseNode[] otherActions;
+      protected ParseNode[] mActions;
 
-      public OrParseNode(ParseNode action, ParseNode[] otherActions)
+      public OrParseNode(ParseNode[] actions)   
       {
-         if (action == null)
-            throw new ArgumentNullException("OrParseNode: left most node is null");
+         if (actions == null)
+            throw new ArgumentNullException("actions");
 
-         if (otherActions == null || otherActions.Length == 0)
-            throw new InvalidOperationException("Or: no argument nodes");
+         if (actions.Length < 2)
+            throw new ArgumentException("Or must have at least 2 arguments");
 
-         for (Int32 i = 0; i < otherActions.Length; i++)
-            if (otherActions[i] == null)
-               throw new ParseException("Or: one of the Or argument nodes is null");
+         if (actions.Any(n => n == null))
+            throw new ArgumentException("Or: one parse node in argument array is null");
 
          mParseTable = new ParseTable<ParseNode>();
-         this.action = action;
-         this.otherActions = otherActions;
+         this.mActions = FlattenActions(actions);
+      }
+
+      /// <summary>
+      /// Simple optimization: Or(a, Or(b, c)) = Or(a, b, c ...)
+      /// In general, without this function, our Ors redo some work (perhaps less with proper caching).
+      /// In such cases, Or(a, Or(b, c)) may determine that we should proceed en route Or(b, c). This is a waste
+      /// as we can already know whether we should choose b or c.
+      /// </summary>
+      /// <param name="otherActions"></param>
+      /// <returns></returns>
+      protected ParseNode[] FlattenActions(ParseNode[] otherActions)
+      {
+         List<ParseNode> tResult = new List<ParseNode>(otherActions.Length);
+         foreach (ParseNode tNode in otherActions)
+            if (tNode == null)
+               throw new ParseException("Or: one of the Or argument nodes is null");
+            else if (tNode is OrParseNode)
+            {
+               OrParseNode tOrNode = (OrParseNode)tNode;
+               tResult.AddRange(tOrNode.mActions); // note: already flattened!
+            }
+            else
+               tResult.Add(tNode);
+
+         return tResult.ToArray();
       }
 
       internal override bool DerivesExclusivelyTo(ParseNode pNode)
@@ -888,8 +906,8 @@ namespace SimpleCC
          if (pNode == this)
             return true;
 
-         Boolean tAllDerive = !action.Optional && action.DerivesExclusivelyTo(pNode);
-         foreach (ParseNode tOtherNode in otherActions)
+         Boolean tAllDerive = true;
+         foreach (ParseNode tOtherNode in mActions)
             if (tAllDerive)
                tAllDerive = !tOtherNode.Optional && tOtherNode.DerivesExclusivelyTo(pNode);
             else
@@ -905,12 +923,10 @@ namespace SimpleCC
 
          base.VerifyTree(); // also prevenst reentry, marks node verified..
 
-         // all derive exclusively to this
-         if (action.DerivesExclusivelyTo(this) && otherActions.All(n => n.DerivesExclusivelyTo(this)))
+         if (mActions.All(n => n.DerivesExclusivelyTo(this)))
             throw new ParseException("node derives exclusively to self"); // todo: msg
 
-         action.VerifyTree();
-         foreach (ParseNode tOtherNode in otherActions)
+         foreach (ParseNode tOtherNode in mActions)
             tOtherNode.VerifyTree();
       }
 
@@ -924,55 +940,133 @@ namespace SimpleCC
       {
          Boolean tAllPrimed = true;
 
-         tAllPrimed = action.Prime(parser) && tAllPrimed;
-         if (tAllPrimed)
-            foreach (ParseNode tNode in otherActions)
-               tAllPrimed = tNode.Prime(parser) && tAllPrimed;
+         foreach (ParseNode tNode in mActions)
+         {
+            if (tAllPrimed)
+               tAllPrimed = tNode.Prime(parser);
+            else
+               tNode.Prime(parser); // always prime
+         }
 
          if (!tAllPrimed)
             return false;
 
          Debug.Assert(!IsPrimed(), "or node already primed");
 
-         this.Label = "OR(" + action.Label + ", " + OrLabels(otherActions) + ")";
-
          // With all nodes primed, build parse table.
 
-         // todo: should we check if terminals of one node can conflict?
-         foreach (Terminal tTerminal in action.DoGetDecisionTerminals())
-            mParseTable.AddTerminal(tTerminal, action); // todo: better error handling if key found
+         // todo: should we check if terminals of one node can conflict? - yes..
+         // .. as we otherwise pick a first one we can advance resulting in probable undeterministic behaviour.
 
          Dictionary<Terminal, HashSet<ParseNode>> tConflictMap = new Dictionary<Terminal, HashSet<ParseNode>>();
-         Action<Terminal, ParseNode> tAddConflict = (t, n) =>
-         {
-            HashSet<ParseNode> tList;
-            if (!tConflictMap.TryGetValue(t, out tList))
+        
+
+#if false
+         // Collect all terminals.
+   //      List<Terminal> tTerminalList = mActions.SelectMany(tOtherNode => tOtherNode.DoGetDecisionTerminals()).ToList();
+
+         // var tTerminalList = from tNode in mActions
+         var tTerminalList = mActions.SelectMany(n => from t in n.DoGetDecisionTerminals() select new { Node = n, Terminal = t });
+
+         using (var tTerminalEnumerator = tTerminalList.GetEnumerator())
+            for (Int32 i = 1; tTerminalEnumerator.MoveNext(); i++)
             {
-               tList = new HashSet<ParseNode>();
-               tConflictMap.Add(t, tList);
+               Boolean tNoConflict = true;
+
+               foreach (var tOther in tTerminalList.Skip(i)) // don't do the conflict test twice (through symmetry), it's a little intensive
+               {
+                  if (tTerminalEnumerator.Current.Terminal.ConflictsWith(tOther.Terminal))
+                  {
+                     if (tTerminalEnumerator.Current.Node == tOther.Node)
+                        ;// throw new ParseException("");
+
+                     tAddConflict(tTerminalEnumerator.Current.Terminal, tTerminalEnumerator.Current.Node);
+                     tAddConflict(tOther.Terminal, tOther.Node);
+
+                     tNoConflict = false;
+                  }
+               }
+
+               if (tNoConflict)
+                  mParseTable.AddTerminal(tTerminalEnumerator.Current.Terminal, tTerminalEnumerator.Current.Node);
             }
+#endif
 
-            tList.Add(n); // hashset?!
-         };
+#if false
+         // var tTerminalList = from tNode in mActions
 
-         foreach (ParseNode tOtherNode in otherActions)
+         for (Int32 i = 0; i < mActions.Length; i++)
+         {
+            ParseNode tCurrentNode = mActions[i];
+
+            // Check this node has no terminals conflicting.
+            Terminal[] tCurrentDecisionTerminals = tCurrentNode.DoGetDecisionTerminals();
+            for (Int32 j = 0; j < tCurrentDecisionTerminals.Length; j++)
+               for (Int32 k = j + 1; k < tCurrentDecisionTerminals.Length; k++)
+                  if (tCurrentDecisionTerminals[j].Equals(tCurrentDecisionTerminals[k]))
+                     throw new ParseException("foobar");
+
+            for(Int32 j = i + 1; j < mActions.Length; j++)
+            {
+               ParseNode tOther = mActions[j];
+               Terminal[] tOtherTerminals = tOther.DoGetDecisionTerminals();
+
+               // Test all terminals for conflicts.
+               foreach (var tCurrentTerminal in tCurrentDecisionTerminals)
+               {
+                  Boolean tNoConflict = true;
+
+                  foreach (var tOtherTerminal in tOtherTerminals)
+                     if (tCurrentTerminal.ConflictsWith(tOtherTerminal))
+                     {
+                        tAddConflict(tCurrentTerminal, tCurrentNode);
+                        tAddConflict(tOtherTerminal, tOther);
+
+                        tNoConflict = false;
+                     }
+
+                  if (tNoConflict)
+                  {
+                     if (mParseTable.ContainsTerminal(tCurrentTerminal))
+                     {
+                        tAddConflict(tCurrentTerminal, tCurrentNode);
+                        tAddConflict(tCurrentTerminal, mParseTable[tCurrentTerminal]);
+                     }
+                     else
+                        mParseTable.AddTerminal(tCurrentTerminal, tCurrentNode);
+                  }
+               }
+            }
+         }
+#endif
+
+#if true
+         foreach (ParseNode tOtherNode in mActions)
             foreach (Terminal tTerminal in tOtherNode.DoGetDecisionTerminals()) // todo: must do properly
             {
+
                if (mParseTable.ContainsTerminal(tTerminal))
                {
-                  tAddConflict(tTerminal, mParseTable[tTerminal]);
-                  tAddConflict(tTerminal, tOtherNode);
+                  ParseNode tExistingNode = mParseTable[tTerminal];
+
+                  _AddConflict(tConflictMap, tTerminal, tExistingNode, tOtherNode);
                }
                else
                   mParseTable.AddTerminal(tTerminal, tOtherNode);
             }
 
-         foreach (Terminal tTerm in mParseTable.Terminals)
-            if (mParseTable.HasConflictingTerminal(tTerm))
-            {
-               tAddConflict(tTerm, mParseTable[tTerm]);
-            }
-
+         // Test for shared prefixes. This is used to distinguish for example in the xpath case / from //, as the regex for / will match on input //.
+         // todo: this should be "is subset of"? Our case belowe is too general, as we require lookahead for a case such as "abcd" and "abce", when this is not needed.
+         using(IEnumerator<Terminal> tTerminals = mParseTable.Terminals.GetEnumerator())
+            for (Int32 i = 1; tTerminals.MoveNext(); i++)
+               foreach (Terminal tOtherTerminal in mParseTable.Terminals.Skip(i)) // don't do the conflict test twice (through symmetry), it's a little intensive
+                  if (tTerminals.Current.ConflictsWith(tOtherTerminal))
+                  {
+                     _AddConflict(tConflictMap, tTerminals.Current, mParseTable[tTerminals.Current]);
+                     _AddConflict(tConflictMap, tOtherTerminal, mParseTable[tOtherTerminal]);
+                  }
+#endif
+         
          LookaheadParseNode tLookaheadNode = new LookaheadParseNode(tConflictMap); // new LookaheadParseNode(tConflictingTerminals, tParseTable);
 
          // Replace with lookahead node.
@@ -982,27 +1076,32 @@ namespace SimpleCC
          return true; // we are primed
       }
 
-      private static String OrLabels(ParseNode[] tArray)
+      private static void _AddConflict (Dictionary<Terminal, HashSet<ParseNode>> tConflictMap, Terminal terminal, ParseNode node, params ParseNode[] otherNodes)
       {
-         String tResult = "";
-         for (Int32 i = 0; i < tArray.Length; i++)
+         HashSet<ParseNode> tSet;
+         if (!tConflictMap.TryGetValue(terminal, out tSet))
          {
-            tResult += tArray[i].Label;
-            if (i != tArray.Length - 1)
-               tResult += ", ";
+            tSet = new HashSet<ParseNode>();
+            tConflictMap.Add(terminal, tSet);
          }
-         return tResult;
+
+         //if (tSet.Contains(n))
+         //   throw new ParseException("Node {0} contains two conflicting terminals.", n.Name);
+
+         tSet.Add(node);
+         foreach (ParseNode tNode in otherNodes)
+            tSet.Add(tNode);
       }
 
       public override Terminal[] GetDecisionTerminals()
       {
-         System.Diagnostics.Debug.Assert(this.Mode == PrimeMode.Primed);
+         Debug.Assert(this.Mode == PrimeMode.Primed);
          return mParseTable.Terminals.ToArray(); // todo array?
       }
 
       public override bool ParsesTerminal(Terminal s)
       {
-         System.Diagnostics.Debug.Assert(this.Mode == PrimeMode.Primed);
+         Debug.Assert(this.Mode == PrimeMode.Primed);
          return mParseTable.ContainsTerminal(s) && mParseTable[s].ParsesTerminal(s);
       }
 
@@ -1036,7 +1135,7 @@ namespace SimpleCC
          //   }
 
          RaiseExpectedTerminals(c, mParseTable.Terminals);
-         throw new InvalidOperationException();
+         throw new InvalidOperationException(); // damn compiler
       }
 
       public override bool LookaheadTerminals(Terminal s, HashSet<Terminal> l)
@@ -1054,13 +1153,28 @@ namespace SimpleCC
       {
          get
          {
-            return action.Optional || otherActions.Any(n => n.Optional);
+            return mActions.Any(n => n.Optional);
          }
       }
 
       public override void Accept(ParseNodeVisitor visitor)
       {
          visitor.Visit(this);
+      }
+
+      internal override StringBuilder ToString(StringBuilder builder, HashSet<ParseNode> seenNodes)
+      {
+         if (HasToStringVisited(builder, seenNodes))
+            return builder;
+
+         mActions[0].ToString(builder, seenNodes);
+         for(Int32 i = 1; i < mActions.Length; i++)
+         {
+            builder.Append(" | ");
+            mActions[i].ToString(builder, seenNodes);
+         }
+
+         return base.ToString(builder, seenNodes);
       }
    }
 
@@ -1084,6 +1198,12 @@ namespace SimpleCC
       {
          visitor.Visit(this);
       }
+
+      internal override StringBuilder ToString(StringBuilder builder, HashSet<ParseNode> seenNodes)
+      {
+         builder.Append(Name);
+         return base.ToString(builder, seenNodes);
+      }
    }
 
    public class ParseNodeVisitor
@@ -1093,7 +1213,7 @@ namespace SimpleCC
       public virtual void Visit(TerminalParseNode terminalNode) { }
       public virtual void Visit(LookaheadParseNode lookaheadNode) { }
       public virtual void Visit(OptionalParseNode optionalNode) { }
-      public virtual void Visit(EOFNode eofNode) { }
+      public virtual void Visit(EofNode eofNode) { }
       public virtual void Visit(SimpleParseNode simpleNode) { }
       public virtual void Visit(ProductionNode prodNode) { }
    }
@@ -1160,9 +1280,17 @@ namespace SimpleCC
 
    public abstract class ParseNode
    {
-      public String DEBUG;
+      protected String mName;
+      public virtual String Name { 
+         get { return mName ?? "«unnamed»"; }
+         set { mName = value;}
+      }
 
-      public virtual String Label { get; protected set; } // used for debugging only todo: can use a class type for each type of node (?)
+      public virtual ParseNode SetName(String name)
+      {
+         this.Name = name;
+         return this;
+      }
 
       public virtual Boolean Optional
       {
@@ -1221,7 +1349,6 @@ namespace SimpleCC
      
       public Boolean Prime(ParserBase parser) 
       {
-       
          switch (Mode)
          {
             case PrimeMode.None:
@@ -1229,10 +1356,7 @@ namespace SimpleCC
                if (PrimeInternal(parser))
                   Mode = PrimeMode.Primed;
                else
-               {
                   Mode = PrimeMode.None;
-                 // primeStack.Push(this); // couldn't prime this node, queue for retry
-               }
                
                break;
          }
@@ -1267,7 +1391,7 @@ namespace SimpleCC
       protected static void RaiseExpectedTerminals(ParseContext ctx, IEnumerable<Terminal> terminals)
       {
          // todo: add positional info
-         throw new ParseException("expected one of '{0}', found '{1}'", String.Join(", ", terminals), String.Join<Terminal>(" or ", terminals)); // todo
+         throw ctx.CreateParseException("Expected one of '{0}', found '{1}'", String.Join(", ", terminals), String.Join<Terminal>(" or ", terminals)); // todo
       }
 
       protected SyntaxNode Rewrite(SyntaxNode pNode)
@@ -1279,9 +1403,30 @@ namespace SimpleCC
 
       internal ParseNode AddRewriter(Func<SyntaxNode, SyntaxNode> pRewriter)
       {
-         //mRewriter = pRewriter;
          mRewriter += pRewriter;
          return this;
+      }
+
+      protected virtual Boolean HasToStringVisited(StringBuilder builder, HashSet<ParseNode> seenNodes)
+      {
+         if (seenNodes.Contains(this))
+         {
+            // something better?
+            builder.Append("recursing(").Append(this.Name).Append(')');
+            return true;
+         }
+         return false;
+      }
+
+      internal virtual StringBuilder ToString(StringBuilder builder, HashSet<ParseNode> seenNodes)
+      {
+         seenNodes.Add(this);
+         return builder;
+      }
+
+      public override string ToString()
+      {
+         return ToString(new StringBuilder(), new HashSet<ParseNode>()).ToString();
       }
    }
 
@@ -1301,8 +1446,6 @@ namespace SimpleCC
        * */
       public LookaheadParseNode(Dictionary<Terminal, HashSet<ParseNode>> pConflictMap) // can pass builder here if necessary
       {
-         Label = "LOOKAHEAD";
-
          mConflictMap = pConflictMap;
 
          this.Prime(null); // todo: make bit nicer, just mark as primed.. not applicable here..
@@ -1343,23 +1486,41 @@ namespace SimpleCC
          }
 
          // 3. Determine if our lookahead map is unique, every route is unique.
-         // probably quite intensive..
-         List<GeneralTerminal> tDefaultTerminals = new List<GeneralTerminal>();
+         // This does a lot of work.
 
+
+         List<GeneralTerminal> tDefaultTerminals = new List<GeneralTerminal>();
          Int32 tCount = 0;
+
          foreach(var tEntry in mLookaheadMap)
          {
             tCount += 1;
 
             // Check that the routes for this terminal are unique..
-            SimpleRegex tFirstRegex = null;
-            foreach(var tPair in tEntry.Value)
-               foreach (GeneralTerminal tTerminal in tPair.Left.Where(t => !(t is DefaultTerminal)))
-                  if (tFirstRegex == null)
-                     tFirstRegex = tTerminal.SimpleRegex;
-                  //else if (SimpleRegex.RewritesIntersect(tFirstRegex, tTerminal.SimpleRegex))
-                  else if (tFirstRegex.Intersects(tTerminal.SimpleRegex)) 
-                     throw new ParseException("inconclusive lookahead (a)");
+            // Test that for each two lookahead terminals (non-default), there is no intersection. If there were, given an input matching that intersection
+            // we would not be able to choose the correct parsenode to proceed with, as both would have matching lookahead.
+            // Note that we do not check for intersection for terminals under a single node. If there is a conflict there, it should have been caught by that node itself,
+            // when it primes and decides two terminals can conflict.
+            var tEnumerator = tEntry.Value.GetEnumerator();
+            for (Int32 i = 1; tEnumerator.MoveNext(); i++)
+               foreach (var tOtherValue in tEntry.Value.Skip(i))
+               {
+                  // For each terminal of the current node, check against all other terminals of the other nodes.
+                  foreach (GeneralTerminal tTerminal in tEnumerator.Current.Left.Where(t => !(t is DefaultTerminal)))
+                     foreach (GeneralTerminal tOtherTerminal in tOtherValue.Left.Where(t => !(t is DefaultTerminal)))
+                        if (tTerminal.SimpleRegex.Intersects(tOtherTerminal.SimpleRegex))
+                           throw new ParseException("Inconclusive lookahead, terminals {0} and {1} share possible common input.", tTerminal, tOtherTerminal);
+               }
+
+            //IEnumerable<GeneralTerminal> tTerminalList = tEntry.Value.SelectMany(p => p.Left).Where(t => !(t is DefaultTerminal)).Cast<GeneralTerminal>();
+            //IEnumerator<GeneralTerminal> tEnumerator = tTerminalList.GetEnumerator();
+            //for (Int32 i = 1; tEnumerator.MoveNext(); i++)
+            //   foreach (GeneralTerminal tOther in tTerminalList.Skip(i))
+            //   {
+            //      if (tEnumerator.Current.SimpleRegex.Intersects(tOther.SimpleRegex))
+            //         throw new ParseException("Inconclusive lookahead, terminals {0} and {1} share possible common input.", tEnumerator.Current, tOther);
+            //   }
+
 
             foreach (var tPair in tEntry.Value)
             {
@@ -1369,15 +1530,13 @@ namespace SimpleCC
                   if (tDefaultTerminals.Count > 0) // see if we have a conflict
                   {
                      foreach (GeneralTerminal tOtherDefaultTerm in tDefaultTerminals)
-                        //if (SimpleRegex.RewritesIntersect(tEntry.Key.SimpleRegex, tOtherDefaultTerm.SimpleRegex)) // sharing a prefix is OK here: we'll handle this in the parser, they should just not intersect
-                        if (tEntry.Key.SimpleRegex.Intersects(tOtherDefaultTerm.SimpleRegex)) 
+                        if (tEntry.Key.SimpleRegex.Intersects(tOtherDefaultTerm.SimpleRegex))  // sharing a prefix is OK here: we'll handle this in the parser, they should just not intersect
                            throw new ParseException("2 terminals with defaults clashing"); // todo: obviously improve the msg here
-                     }
+                  }
                   
                   tDefaultTerminals.Add(tEntry.Key);
                }
 
-               // NOTE: this used to use AND, changed to Sequence which makes sense :S
                // NOTE: all regexes are already normalized, the result is also normalized
                SimpleRegex tLeftRegex = SimpleRegex.Sequence(tEntry.Key.SimpleRegex,
                   SimpleRegex.Choice(from t in tPair.Left where !(t is DefaultTerminal) select ((GeneralTerminal)t).SimpleRegex));
@@ -1389,7 +1548,6 @@ namespace SimpleCC
                      SimpleRegex tRightRegex = SimpleRegex.Sequence(tOtherEntry.Key.SimpleRegex,
                         SimpleRegex.Choice(from t in tOtherPair.Left where !(t is DefaultTerminal) select ((GeneralTerminal)t).SimpleRegex));
 
-                     //if (SimpleRegex.RewritesIntersect(tLeftRegex, tRightRegex))
                      if (tLeftRegex.Intersects(tRightRegex))
                         throw new ParseException("inconclusive lookahead");
                   }
@@ -1422,9 +1580,9 @@ namespace SimpleCC
       // is the default route.
       public override bool ParsesTerminal(Terminal pTerminal)
       {
-         foreach (GeneralTerminal tTerm in mLookaheadMap.Keys)
-            if (tTerm.SemanticEquals((GeneralTerminal)pTerminal)) // it parses
-               foreach (var tItem in mLookaheadMap[tTerm]) // todo lookup should be avoided by different foreach above
+         foreach(var tPair in mLookaheadMap)
+            if (tPair.Key.SemanticEquals((GeneralTerminal)pTerminal))
+               foreach(var tItem in tPair.Value)
                   if (tItem.Left.Any(t => t is DefaultTerminal))
                      return true;
 
@@ -1455,7 +1613,7 @@ namespace SimpleCC
                   foreach (GeneralTerminal tLookaheadTerminal in tPair.Left)
                      if (tLookaheadTerminal is DefaultTerminal)
                      {
-                        if (c.Position > tDefaultPosition) // greedily found next default route
+                        if (c.Position > tDefaultPosition) // greedily found next default route -> todo setting
                         {
                            tDefaultNode = tPair.Right;
                            tDefaultPosition = c.Position;
@@ -1482,12 +1640,36 @@ namespace SimpleCC
             return tDefaultNode.Parse(c);
          }
 
-         throw new ParseException("parse error"); // todo: improve error -> how, maybe name terminals (defaulting to strings?, reflection?)
+         throw new ParseException("parse error"); // todo: improve error
       }
 
       public override void Accept(ParseNodeVisitor visitor)
       {
          visitor.Visit(this);
+      }
+
+      internal override StringBuilder ToString(StringBuilder builder, HashSet<ParseNode> seenNodes)
+      {
+         throw new InvalidOperationException();
+      }
+   }
+
+   // todo: use this class, then rename in order to refactor.
+   // remove generics
+   // add support for default routes
+   public class Pair2<U, V>
+   {
+      public U Left; public V Right;
+
+      public override bool Equals(object obj)
+      {
+         Pair<U, V> tOther = obj as Pair<U, V>;
+         return tOther != null && Left.Equals(tOther.Left) && Right.Equals(tOther.Right);
+      }
+
+      public override int GetHashCode()
+      {
+         return Left.GetHashCode() ^ Right.GetHashCode();
       }
    }
 
@@ -1497,16 +1679,15 @@ namespace SimpleCC
 
       protected ParseNode mNode;
       protected Func<ParseNode> mNodeGenerator;
-      protected String mName;
 
       public ProductionNode(Func<ParseNode> nodeGenerator) : this(null, nodeGenerator)
       { }
 
-      public ProductionNode(String pName, Func<ParseNode> nodeGenerator)
+      // note on names: a name does not *have* to be unique, just like naming in general.
+      public ProductionNode(String name, Func<ParseNode> nodeGenerator)
       {
          mNodeGenerator = nodeGenerator;
-         mName = pName; // todo: check uniqueness of name
-         Label = "PRODUCTION"; // todo?
+         mName = name;
       }
 
       internal override bool DerivesExclusivelyTo(ParseNode pNode)
@@ -1549,7 +1730,7 @@ namespace SimpleCC
          // todo: it would be MUCH nicer if we could say which rule etc. Could we do this? Reflection (horrible?)?
         
          if (mNode != null && mNode.IsPriming())
-            throw new ParseException("circular grammar: symbol node depends on a node that could not be primed");
+            throw new ParseException("Circular grammar: production node {0} depends on node {1} in a circular way.", this.Name, mNode.Name);
 
          //if (mNode == null)
          //   mNode = mNodeGenerator();
@@ -1558,9 +1739,6 @@ namespace SimpleCC
          //   throw new ParseException("missing production");
 
          Boolean tResult = mNode.Prime(parser);
-
-         if (tResult)
-            Label = mNode.Label;
 
          return tResult;
       }
@@ -1583,13 +1761,15 @@ namespace SimpleCC
          return mNode.GetDecisionTerminals();
       }
 
-      public override SyntaxNode Parse(ParseContext c)
+      public override SyntaxNode Parse(ParseContext ctx)
       {
          Debug.Assert(Mode == PrimeMode.Primed);
 
-         SyntaxNode tResult = mNode.Parse(c);
+         ctx.CurrentlyParsingProduction = this;
 
-         return Rewrite( new ProductionSyntaxNode()
+         SyntaxNode tResult = mNode.Parse(ctx);
+
+         return Rewrite(new ProductionSyntaxNode()
          {
             Production = this,
             Children = new[] { tResult },
@@ -1613,6 +1793,12 @@ namespace SimpleCC
       {
          visitor.Visit(this);
       }
+
+      internal override StringBuilder ToString(StringBuilder builder, HashSet<ParseNode> seenNodes)
+      {
+         builder.Append(Name);
+         return base.ToString(builder, seenNodes);
+      }
    }
 
    public abstract class Terminal
@@ -1629,6 +1815,7 @@ namespace SimpleCC
    /// <summary>
    /// A "marker" that marks the route to follow if no other lookahead matches.
    /// todo: this should maybe not be a general terminal? But requires changes in code. Look into doing so. DO THIS IF IT'S WORKING
+   /// > this is only a marker, so we should be able to completely code around this
    /// </summary>
    public class DefaultTerminal : GeneralTerminal
    {
@@ -1745,7 +1932,6 @@ namespace SimpleCC
          if (CheckCache(ctx))
             return true;
 
-         System.Diagnostics.Stopwatch tTimer = System.Diagnostics.Stopwatch.StartNew();
          Match tMatch = mRegex.Match(ctx.Expression, ctx.Position);
          if (tMatch.Success && tMatch.Index == ctx.Position)
          {
@@ -1807,11 +1993,11 @@ namespace SimpleCC
          return tFirstMatch.Value;
       }
 
+      // todo: this is only used in or, do there explicitly?
       public override bool ConflictsWith(Terminal pOther)
       {
          if (pOther is GeneralTerminal)
          {
-            //return SimpleRegex.RewritesCommonPrefix(mSimpleRegex, ((GeneralTerminal)pOther).mSimpleRegex);
             return mSimpleRegex.SharesCommonPrefixWith(((GeneralTerminal)pOther).mSimpleRegex);
          }
          else
@@ -1830,7 +2016,7 @@ namespace SimpleCC
          if (tOther == null)
             return false;
 
-         if (tOther.mExpression == mExpression) // todo: case for insensitivity
+         if (this == tOther || tOther.mExpression == mExpression) // todo: case for insensitivity
             return true;
 
          // todo: we must clone here but should look at if we could avoid that somehow
@@ -1856,7 +2042,7 @@ namespace SimpleCC
 
          // todo: this performs an unnecessary regex rewrite (!)
       //   mHashCode = this.mSimpleRegex.EqualsConsistentHashCode(); // todo: may wish to try 
-         mHashCode = this.mSimpleRegex.EqualsConsistentHashCodeNoRewrite();
+         mHashCode = this.mSimpleRegex.EqualsConsistentHashCode();
          return mHashCode.Value;
       }
 
@@ -1981,37 +2167,69 @@ namespace SimpleCC
       protected ParserBase()
       {
          State = ParserState.None;
+         
          DefineGrammar();
+
+         
       }
 
-      protected ParseNode Rule(Func<ParseNode> definition)
+      protected ParseNode Define(Func<ParseNode> definition)
       {
-         ProductionNode tNode = new ProductionNode(definition);
-         _mPrimeTargets.Add(tNode);
-         return tNode;
+         //ProductionNode tNode = new ProductionNode(definition);
+         //_mPrimeTargets.Add(tNode);
+         //return tNode;
+         return Define((String)null, definition);
       }
 
-      protected ParseNode Define(String name, Func<ParseNode> definition)
+      protected ParseNode Define(String terminal)
+      {
+         return Define(() => terminal.Terminal());
+      }
+
+      protected virtual ParseNode Define(String name, Func<ParseNode> definition)
       {
          ProductionNode tNode = new ProductionNode(name, definition);
          _mPrimeTargets.Add(tNode);
          return tNode;
       }
 
-      // todo: force this to be the way, avoids having to set null everywhere, makes compiler detect unused vars etc!
-      // > unfortunately, can still not reference variables in the definition unless initialized..
+      protected ParseNode Define(String name, String terminal)
+      {
+         return Define(name, () => terminal.Terminal());
+      }
+
+      protected ParseNode Define(out ParseNode target, Func<ParseNode> definition)
+      {
+         return Define(out target, null, definition);
+      }
+
+      protected ParseNode Define(out ParseNode target, String terminal)
+      {
+         return Define(out target, () => terminal.Terminal());
+      }
+
       protected ParseNode Define(out ParseNode target, String name, Func<ParseNode> definition)
       {
-         ProductionNode tNode = new ProductionNode(name, definition);
-         _mPrimeTargets.Add(tNode);
-         target = tNode;
-         return tNode;
+         return (target = Define(name, definition));
+         //ProductionNode tNode = new ProductionNode(name, definition);
+         //_mPrimeTargets.Add(tNode);
+         //target = tNode;
+         //return tNode;
+      }
+
+      protected ParseNode Define(out ParseNode target, String name, String terminal)
+      {
+         return Define(out target, name, () => terminal.Terminal());
       }
 
       /// <summary>
       /// Usage:
+      /// 
+      /// // Declare the node.
       /// ParseNode A;
+      /// // Define it.
       /// Define(() => A, () => ... definition ... );
+      /// 
       /// This is equivalent* to doing:
       /// Define(out A, "A", () => ... definition ... );
       /// 
@@ -2020,21 +2238,27 @@ namespace SimpleCC
       /// <param name="target"></param>
       /// <param name="definition"></param>
       /// <returns></returns>
-      protected ParseNode Define(Expression<Func<ProductionNode>> target, Func<ParseNode> definition)
+      protected ParseNode Define(Expression<Func<ParseNode>> target, Func<ParseNode> definition)
       {
          MemberExpression tMemExpr = target.Body as MemberExpression;
          if (tMemExpr == null)
             throw new Exception("expected a member expression");
 
-         ProductionNode tResult = new ProductionNode(tMemExpr.Member.Name, definition);
+         ParseNode tResult = Define(tMemExpr.Member.Name, definition);
+
          // Perform assignment.
-         ((Func<ProductionNode>)Expression.Lambda(Expression.Assign(tMemExpr, Expression.Constant(tResult))).Compile())();
+         ((Func<ParseNode>)Expression.Lambda(Expression.Assign(tMemExpr, Expression.Constant(tResult))).Compile())();
          return tResult;
       }
 
-      protected void Define(out ParseNode target, Func<ParseNode> definition)
+      protected ParseNode Define(Expression<Func<ParseNode>> target, Func<String> definition)
       {
-         Define(out target, null, definition);
+         return Define(target, () => definition().Terminal());
+      }
+
+      protected ParseNode Define(Expression<Func<ParseNode>> target, String terminal)
+      {
+         return Define(target, () => terminal.Terminal());
       }
 
       protected abstract void DefineGrammar();
@@ -2046,28 +2270,24 @@ namespace SimpleCC
       public ParserBase Build()
       {
          if (Root == null)
-            throw new Exception("no root defined");
+            throw new ParseException("Invalid grammar definition: Root was not assigned.");
+
+         Root.SetName("Root"); // overrides anything set elsewhere
 
          if (State != ParserState.None)
             throw new ParseException("can only call Build() once");
 
          // Prime.
-     
-         // todo: we *want* this, why does it not always work? << this still applicable?
-         // > this won't work because of the way a follow node is primed, it may be marked as primed but not fully primed internally (ie if the first node is not optional,
-         // we don't need the second node primed.
-
          State = ParserState.InitializingRegexBuilder;
 
-         // Initial prime to collect alphabet.
+         // Initial walk through to collect our alphabet and ranges to be able to init our regex builder.
          SimpleRegexBuilder tBuilder = new SimpleRegexBuilder();
 
          Root.InitRegexBuilder(tBuilder, this);
 
          mRegexBuilder = tBuilder.Build();
 
-         //mRegexBuilder = new SimpleRegexBuilder(mAlphabet, mRangeSet);
-
+         // Second walk to "prime" our parser.
          State = ParserState.Priming;
 
          if (!Root.Prime(this))
@@ -2080,7 +2300,7 @@ namespace SimpleCC
          Root.VerifyTree();
 
          // Verify all nodes were primed, if one was not, it's not reachable from the Root.
-         // todo: note this won't catch things like "a".Terminal as it won't pass through Rule, maybe find a good way to tackle that?
+         // todo: note this won't catch things like "a".Terminal as it won't pass through Define, maybe find a good way to tackle that?
          foreach (ProductionNode tNode in _mPrimeTargets)
             if (!tNode.IsPrimed())
                throw new ParseException("unreachable terminal detected");
@@ -2090,7 +2310,6 @@ namespace SimpleCC
          return this;
       }
 
-      // todo: this has gotta return something, ehm
       public SyntaxNode Parse(String expression)
       {
          ParseContext tContext = GetContext();
@@ -2099,4 +2318,13 @@ namespace SimpleCC
          return Root.Parse(tContext);
       }
    }
+
+   // todo:
+   // define a parser that uses a parsenode based approach to interleaving...
+   //public class InterleavingParserBase : ParserBase
+   //{
+   //   protected ParseNode Interleaved;
+
+
+   //}
 }

@@ -47,8 +47,8 @@ namespace SimpleConsoleTests
                tLeft = ((ChoiceRegex)tRewrite).Left;
                tRight = ((ChoiceRegex)tRewrite).Right;
 
-               Console.WriteLine("Rewritten (1) hashcode: " + tLeft.EqualsConsistentHashCodeNoRewrite() + " " + tLeft);
-               Console.WriteLine("Rewritten (2) hashcode: " + tRight.EqualsConsistentHashCodeNoRewrite() + " " + tRight);
+               Console.WriteLine("Rewritten (1) hashcode: " + tLeft.EqualsConsistentHashCode() + " " + tLeft);
+               Console.WriteLine("Rewritten (2) hashcode: " + tRight.EqualsConsistentHashCode() + " " + tRight);
 
                Console.WriteLine("Equal: " + tLeft.SemanticEquals(tRight));
                // Commented out, as the access of these methods has changed
@@ -84,19 +84,49 @@ namespace SimpleConsoleTests
 
       static void Main2(String[] args)
       {
-         Foo foo = new Foo();
-         Action a = () => { Console.WriteLine(foo.Bar); };
-         a();
-         List<Foo> list = new List<Foo>();
-         list.Add(foo);
-         Two(list);
-         a();
-         Console.Read();
+         BnfParser tBnfParser = null;
+         StringBuilder tBnf = new StringBuilder();
+         Console.WriteLine("> Enter bnf:");
+         for (String tLine = null; tLine != "!"; tLine = Console.ReadLine().Trim())
+         {
+            try
+            {
+               Console.Write("> ");
+
+               if (tLine == "::n")
+               {
+                  Console.WriteLine("Enter bnf:");
+                  Console.Write("> ");
+                  tBnf = new StringBuilder();
+                  tBnfParser = null;
+                  continue;
+               }
+               if (tLine == "::c")
+               {
+                  tBnfParser = new BnfParser(tBnf.ToString());
+                  Console.Write("Parser created, enter input.");
+                  continue;
+               }
+               if (tBnfParser != null)
+               {
+                  tBnfParser.Parse(tLine);
+                  Console.WriteLine("> OK");
+               }
+               else
+                  tBnf.AppendLine(tLine);
+            }
+            catch (Exception e)
+            {
+               Console.WriteLine(e.Message);
+               continue;
+            }
+         }
       }
 
       static void Two(ref Foo foo) { foo.Bar = 2; }
       static void Two(List<Foo> list) { list[0].Bar = 2; }
 
+      // Creats xpath parser, runs tests and provides a prompt.
       static void Main(string[] args)
       {
          ParserBase tParser = null;

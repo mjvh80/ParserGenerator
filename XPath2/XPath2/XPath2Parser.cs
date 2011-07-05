@@ -82,10 +82,11 @@ namespace XPath2.Parser
    }
 
    // todo: move common stuff into a base class
+   /// <summary>
+   /// A proof of concept xpath 2 parser.
+   /// </summary>
    public class XPath2Parser : ParserBase
    {
-      public XPath2Parser() : base() { }
-
       protected override ParseContext GetContext()
       {
          return new XPathParseContext();
@@ -94,7 +95,7 @@ namespace XPath2.Parser
       protected override void DefineGrammar()
       {
          // Define grammar symbols:
-         ParseNode tExpr = null, tExprSingle = null, tForExpr = null, tQuantifiedExpr = null,
+         ParseNode Expression = null, tExprSingle = null, tForExpr = null, tQuantifiedExpr = null,
             tIfExpr = null, tOrExpr = null, tSimpleForClause = null, tVarName = null, tAndExpr = null, tComparisonExpr = null,
             tRangeExpr = null, tValueComp = null, tGeneralComp = null, tNodeComp = null, tAdditiveExpr = null, tMultiplicativeExpr = null,
             tUnionExpr = null, tIntersectExceptExpr = null, tInstanceofExpr = null, tTreatExpr = null, tCastableExpr = null,
@@ -113,148 +114,149 @@ namespace XPath2.Parser
 
          // Define grammar:
 
-         Root = Rule(() => tExpr.EOF());
+         Root = Define(() => Expression.Eof());
 
-         tExpr = Rule(() => tExprSingle.FollowedBy(",".FollowedBy(tExprSingle).ZeroOrMore()));
+         // Example of using the expression overload of Define.
+         Define(() => Expression, () => tExprSingle.FollowedBy(",".FollowedBy(tExprSingle).ZeroOrMore()));
 
-         //tExprSingle = Rule(() => tForExpr.Or(tQuantifiedExpr).Or(tIfExpr).Or(tOrExpr).Error("expected 'if' or 'or'..."));
-         tExprSingle = Rule(() => tForExpr.Or(tQuantifiedExpr, tIfExpr, tOrExpr));
+         //tExprSingle = Define(() => tForExpr.Or(tQuantifiedExpr).Or(tIfExpr).Or(tOrExpr).Error("expected 'if' or 'or'..."));
+         tExprSingle = Define("ExprSingle", () => tForExpr.Or(tQuantifiedExpr, tIfExpr, tOrExpr));
 
-         //tForExpr = Rule(() => tSimpleForClause.FollowedBy("return".FollowedBy(tExprSingle)));
-         tForExpr = Rule(() => tSimpleForClause.FollowedBy("return", tExprSingle));
+         //tForExpr = Define(() => tSimpleForClause.FollowedBy("return".FollowedBy(tExprSingle)));
+         tForExpr = Define("ForExpr", () => tSimpleForClause.FollowedBy("return", tExprSingle));
 
-         tSimpleForClause = Rule(() => "for".FollowedBy("\\$", tVarName, "in", tExprSingle, (
+         tSimpleForClause = Define("SimpleForClause", () => "for".FollowedBy("\\$", tVarName, "in", tExprSingle, (
                ",".FollowedBy("\\$", tVarName, "in", tExprSingle).ZeroOrMore()
             )));
 
-         tQuantifiedExpr = Rule(() => ("some".Or("every")).FollowedBy("\\$", tVarName, "in", tExprSingle,
+         tQuantifiedExpr = Define("QualifiedExpr", () => ("some".Or("every")).FollowedBy("\\$", tVarName, "in", tExprSingle,
                 ",".FollowedBy("\\$", tVarName, "in", tExprSingle).ZeroOrMore(),
                 "satisfies", tExprSingle)
              );
 
          // todo: comment check (:, could do that in terminal symbol.
-         tIfExpr = Rule(() => "if".FollowedBy(@"\(", tExpr, @"\)", "then", tExprSingle, "else", tExprSingle));
+         tIfExpr = Define("IfExpr", () => "if".FollowedBy(@"\(", Expression, @"\)", "then", tExprSingle, "else", tExprSingle));
 
-         tOrExpr = Rule(() => tAndExpr.FollowedBy("or".FollowedBy(tAndExpr).ZeroOrMore()));
+         tOrExpr = Define("OrExpr", () => tAndExpr.FollowedBy("or".FollowedBy(tAndExpr).ZeroOrMore()));
 
-         tAndExpr = Rule(() => tComparisonExpr.FollowedBy("and".FollowedBy(tComparisonExpr).ZeroOrMore()));
+         tAndExpr = Define("AndExpr", () => tComparisonExpr.FollowedBy("and".FollowedBy(tComparisonExpr).ZeroOrMore()));
 
-         tComparisonExpr = Rule(() => tRangeExpr.FollowedBy(tValueComp.Or(tGeneralComp, tNodeComp).FollowedBy(tRangeExpr).Optional()));
+         tComparisonExpr = Define(() => tRangeExpr.FollowedBy(tValueComp.Or(tGeneralComp, tNodeComp).FollowedBy(tRangeExpr).Optional()));
 
-         tRangeExpr = Rule(() => tAdditiveExpr.FollowedBy("to".FollowedBy(tAdditiveExpr).Optional()));
-         tAdditiveExpr = Rule(() => tMultiplicativeExpr.FollowedBy(@"\-".Or(@"\+").FollowedBy(tMultiplicativeExpr).ZeroOrMore()));
-         tMultiplicativeExpr = Rule(() => tUnionExpr.FollowedBy(@"\*".Or("div").Or("idiv").Or("mod").FollowedBy(tUnionExpr).ZeroOrMore()));
-         tUnionExpr = Rule(() => tIntersectExceptExpr.FollowedBy("union".Or(@"\|").FollowedBy(tIntersectExceptExpr).ZeroOrMore()));
-         tIntersectExceptExpr = Rule(() => tInstanceofExpr.FollowedBy("intersect".Or("except").FollowedBy(tInstanceofExpr).ZeroOrMore()));
-         tInstanceofExpr = Rule(() => tTreatExpr.FollowedBy("instance".FollowedBy("of", tSequenceType).Optional())); ;
-         tTreatExpr = Rule(() => tCastableExpr.FollowedBy("treat".FollowedBy("as", tSequenceType).Optional()));
-         tCastableExpr = Rule(() => tCastExpr.FollowedBy("castable".FollowedBy("as", tSingleType).Optional()));
-         tCastExpr = Rule(() => tUnaryExpr.FollowedBy("cast".FollowedBy("as", tSingleType).Optional()));
-         tUnaryExpr = Rule(() => @"\+".Or(@"\-").ZeroOrMore().FollowedBy(tValueExpr));
-         tValueExpr = Rule(() => tPathExpr);
+         tRangeExpr = Define("ComparisonExpr", () => tAdditiveExpr.FollowedBy("to".FollowedBy(tAdditiveExpr).Optional()));
+         tAdditiveExpr = Define("AdditiveExpr", () => tMultiplicativeExpr.FollowedBy(@"\-".Or(@"\+").FollowedBy(tMultiplicativeExpr).ZeroOrMore()));
+         tMultiplicativeExpr = Define("MultiplicativeExpr", () => tUnionExpr.FollowedBy(@"\*".Or("div").Or("idiv").Or("mod").FollowedBy(tUnionExpr).ZeroOrMore()));
+         tUnionExpr = Define("UnionExpr", () => tIntersectExceptExpr.FollowedBy("union".Or(@"\|").FollowedBy(tIntersectExceptExpr).ZeroOrMore()));
+         tIntersectExceptExpr = Define("IntersectionExpr", () => tInstanceofExpr.FollowedBy("intersect".Or("except").FollowedBy(tInstanceofExpr).ZeroOrMore()));
+         tInstanceofExpr = Define("InstanceOfExpr", () => tTreatExpr.FollowedBy("instance".FollowedBy("of", tSequenceType).Optional())); ;
+         tTreatExpr = Define("TreatExpr", () => tCastableExpr.FollowedBy("treat".FollowedBy("as", tSequenceType).Optional()));
+         tCastableExpr = Define("CastableExpr",() => tCastExpr.FollowedBy("castable".FollowedBy("as", tSingleType).Optional()));
+         tCastExpr = Define("CastExpr", () => tUnaryExpr.FollowedBy("cast".FollowedBy("as", tSingleType).Optional()));
+         tUnaryExpr = Define("UnaryExpr", () => @"\+".Or(@"\-").ZeroOrMore().FollowedBy(tValueExpr));
+         tValueExpr = Define("ValueExpr", () => tPathExpr);
 
-         tGeneralComp = "=".Or("!=").Or("<").Or("<=").Or(">").Or(">="); // todo: params overload
-         tValueComp = "eq".Or("ne").Or("lt").Or("le").Or("gt").Or("ge");
-         tNodeComp = "is".Or("<<").Or(">>");
+         tGeneralComp = "=".Or("!=").Or("<").Or("<=").Or(">").Or(">=").SetName("GeneralComp"); // todo: params overload
+         tValueComp = "eq".Or("ne").Or("lt").Or("le").Or("gt").Or("ge").SetName("ValueComp");
+         tNodeComp = "is".Or("<<").Or(">>").SetName("NodeComp");
 
-         tPathExpr = Rule(() => "/".FollowedBy(tRelativePathExpr.Optional()).Or("//".FollowedBy(tRelativePathExpr)).Or(tRelativePathExpr));
+         tPathExpr = Define("PathExpr", () => "/".FollowedBy(tRelativePathExpr.Optional()).Or("//".FollowedBy(tRelativePathExpr)).Or(tRelativePathExpr));
 
-         tRelativePathExpr = Rule(() => tStepExpr.FollowedBy("/".Or("//").FollowedBy(tStepExpr).ZeroOrMore()));
+         tRelativePathExpr = Define("RelativePathExpr", () => tStepExpr.FollowedBy("/".Or("//").FollowedBy(tStepExpr).ZeroOrMore()));
 
-         tStepExpr = Rule(() => tFilterExpr.Or(tAxisStep));
+         tStepExpr = Define("StepExpr", () => tFilterExpr.Or(tAxisStep));
 
-         tAxisStep = Rule(() => tReverseStep.Or(tForwardStep).FollowedBy(tPredicateList));
+         tAxisStep = Define("AxisStep", () => tReverseStep.Or(tForwardStep).FollowedBy(tPredicateList));
 
-         tForwardStep = Rule(() => tForwardAxis.FollowedBy(tNodeTest).Or(tAbbrevForwardStep));
+         tForwardStep = Define("ForwardStep", () => tForwardAxis.FollowedBy(tNodeTest).Or(tAbbrevForwardStep));
 
-         tForwardAxis = Rule(() => "child".FollowedBy("::").Or("descendant".FollowedBy("::")).Or("attribute".FollowedBy("::")).Or("self".FollowedBy("::")).
+         tForwardAxis = Define("ForwardAxis", () => "child".FollowedBy("::").Or("descendant".FollowedBy("::")).Or("attribute".FollowedBy("::")).Or("self".FollowedBy("::")).
             Or("descendant\\-or\\-self".FollowedBy("::")).Or("following\\-sibling".FollowedBy("::")).Or("following".FollowedBy("::")).Or("namespace".FollowedBy("::")));
 
-         tReverseStep = Rule(() => tReverseAxis.FollowedBy(tNodeTest).Or(tAbbrevReverseStep));
+         tReverseStep = Define("ReverseStep", () => tReverseAxis.FollowedBy(tNodeTest).Or(tAbbrevReverseStep));
 
          // todo: rule not necessary..
-         tReverseAxis = Rule(() => "parent".FollowedBy("::").Or("ancestor".FollowedBy("::")).Or("preceding\\-sibling".FollowedBy("::")).Or("preceding".FollowedBy("::")).Or("ancestor\\-or\\-self".FollowedBy("::")));
+         tReverseAxis = Define("ReverseAxis", () => "parent".FollowedBy("::").Or("ancestor".FollowedBy("::")).Or("preceding\\-sibling".FollowedBy("::")).Or("preceding".FollowedBy("::")).Or("ancestor\\-or\\-self".FollowedBy("::")));
 
-         tAbbrevForwardStep = Rule(() => "@".Optional().FollowedBy(tNodeTest));
+         tAbbrevForwardStep = Define("AbbrevForwardStep", () => "@".Optional().FollowedBy(tNodeTest));
 
-         tAbbrevReverseStep = @"\.\.".Terminal(); // > ..
+         tAbbrevReverseStep = @"\.\.".Terminal().SetName("AbbrevReverseStep"); // > ..
 
-         tNodeTest = Rule(() => tKindTest.Or(tNameTest)); // > one of these
+         tNodeTest = Define("NodeTest", () => tKindTest.Or(tNameTest)); // > one of these
 
-         tNameTest = Rule(() => tQName.Or(tWildCard));
+         tNameTest = Define("NameTest", () => tQName.Or(tWildCard));
 
          // tWildCard is handcoded, due to explicit whitespace annotation:
-         tWildCard = @"\*".Terminal(); // TODO
+         tWildCard = @"\*".Terminal().SetName("Wildcard"); // TODO
          // idea: introduce a special symbol which matches *any* lookahead not matched elsewhere, say ___ANY___ (as NCName should match anything..)
-         //tWildCard = Rule(() => "*".Or(new ParseNode() { Optional = true, GetDecisionTerminals = { throw new Exception("too many choices"); }, Parse = 
+         //tWildCard = Define(() => "*".Or(new ParseNode() { Optional = true, GetDecisionTerminals = { throw new Exception("too many choices"); }, Parse = 
          //}).Or(new ParseNode() { }));
 
-         tFilterExpr = Rule(() => tPrimaryExpr.FollowedBy(tPredicateList));
+         tFilterExpr = Define("FilterExpr", () => tPrimaryExpr.FollowedBy(tPredicateList));
 
-         tPredicateList = Rule(() => tPredicate.ZeroOrMore());
+         tPredicateList = Define("PredicateList", () => tPredicate.ZeroOrMore());
 
-         tPredicate = Rule(() => @"\[".FollowedBy(tExpr).FollowedBy(@"\]"));
+         tPredicate = Define("Predicate", () => @"\[".FollowedBy(Expression).FollowedBy(@"\]"));
 
-         tPrimaryExpr = Rule(() => tLiteral.Or(tVarRef, tParenthesizedExpr, tContextItemExpr, tFunctionCall));
+         tPrimaryExpr = Define("PrimaryExpr", () => tLiteral.Or(tVarRef, tParenthesizedExpr, tContextItemExpr, tFunctionCall));
 
-         tLiteral = Rule(() => tNumericLiteral.Or(tStringLiteral));
+         tLiteral = Define("Literal", () => tNumericLiteral.Or(tStringLiteral));
 
-         tNumericLiteral = Rule(() => tIntegerLiteral.Or(tDecimalLiteral, tDoubleLiteral));
+         tNumericLiteral = Define("NumericLiteral", () => tIntegerLiteral.Or(tDecimalLiteral, tDoubleLiteral));
 
          // todo :escaping, escaping, escaping: $ for .NET!
-         tVarRef = Rule(() => @"\$".FollowedBy(tVarName));
+         tVarRef = Define(() => @"\$".FollowedBy(tVarName)).SetName("VarRef");
 
-         tParenthesizedExpr = Rule(() => @"\(".FollowedBy(tExpr.Optional()).FollowedBy(@"\)"));
+         tParenthesizedExpr = Define("ParenthesizedExpr", () => @"\(".FollowedBy(Expression.Optional()).FollowedBy(@"\)"));
 
-         tContextItemExpr = @"\.".Terminal();
+         tContextItemExpr = @"\.".Terminal().SetName("ContextItemExpr");
 
-         tFunctionCall = Rule(() => tQName.FollowedBy(@"\(", tExprSingle.FollowedBy(",".FollowedBy(tExprSingle).ZeroOrMore()).Optional(), @"\)"));
+         tFunctionCall = Define("FunctionCall", () => tQName.FollowedBy(@"\(", tExprSingle.FollowedBy(",".FollowedBy(tExprSingle).ZeroOrMore()).Optional(), @"\)"));
 
-         tSingleType = Rule(() => tAtomicType.FollowedBy(@"\?".Optional()));
+         tSingleType = Define("SingleType", () => tAtomicType.FollowedBy(@"\?".Optional()));
 
-         tSequenceType = Rule(() => "empty\\-sequence".FollowedBy(@"\(", @"\)").Or(tItemType.FollowedBy(tOccurrenceIndicator.Optional())));
+         tSequenceType = Define("SequencyType", () => "empty\\-sequence".FollowedBy(@"\(", @"\)").Or(tItemType.FollowedBy(tOccurrenceIndicator.Optional())));
 
-         tOccurrenceIndicator = @"\?".Or(@"\+").Or(@"\*");
+         tOccurrenceIndicator = @"\?".Or(@"\+").Or(@"\*").SetName("OccurrenceIndicator");
 
-         tItemType = Rule(() => tKindTest.Or("item".FollowedBy(@"\(", @"\)"), tAtomicType));
+         tItemType = Define("ItemType", () => tKindTest.Or("item".FollowedBy(@"\(", @"\)"), tAtomicType));
 
-         tAtomicType = Rule(() => tQName);
+         tAtomicType = Define("AtomicType", () => tQName);
 
-         tKindTest = Rule(() => tDocumentTest.Or(tElementTest, tAttributeTest, tSchemaElementTest, tSchemaAttributeTest, 
+         tKindTest = Define("KindTest", () => tDocumentTest.Or(tElementTest, tAttributeTest, tSchemaElementTest, tSchemaAttributeTest, 
             tPITest, tCommentTest, tTextTest, tAnyKindTest));
 
-         tAnyKindTest = "node".FollowedBy(@"\(", @"\)");
+         tAnyKindTest = Define("AnyKindTest", () => "node".FollowedBy(@"\(", @"\)"));
 
-         tDocumentTest = Rule(() => "document\\-node".FollowedBy(@"\(", tElementTest.Or(tSchemaElementTest).Optional(), @"\)"));
+         tDocumentTest = Define("DocumentTest", () => "document\\-node".FollowedBy(@"\(", tElementTest.Or(tSchemaElementTest).Optional(), @"\)"));
 
-         tTextTest = "text".FollowedBy(@"\(", @"\)");
+         tTextTest = Define("TextTest", () => "text".FollowedBy(@"\(", @"\)"));
 
-         tCommentTest = "comment".FollowedBy(@"\(", @"\)");
+         tCommentTest = Define("CommentTest", () => "comment".FollowedBy(@"\(", @"\)"));
 
-         tPITest = Rule(() => "processing\\-instruction".FollowedBy(@"\(", tNCName.FollowedBy(tStringLiteral).Optional(), @"\)"));
+         tPITest = Define("PITest", () => "processing\\-instruction".FollowedBy(@"\(", tNCName.FollowedBy(tStringLiteral).Optional(), @"\)"));
 
-         tAttributeTest = Rule(() => 
+         tAttributeTest = Define("AttributeTest", () => 
             "attribute".FollowedBy(@"\(", tAttribNameOrWildcard.FollowedBy(",".FollowedBy(tTypeName).Optional()).Optional(), @"\)" ));
 
-         tAttribNameOrWildcard = Rule(() => tAttributeName.Or(@"\*"));
+         tAttribNameOrWildcard = Define("AttributeNameOrWildcard", () => tAttributeName.Or(@"\*"));
 
-         tSchemaAttributeTest = Rule(() => "schema\\-attribute".FollowedBy(@"\(", tAttributeDeclaration, @"\)"));
+         tSchemaAttributeTest = Define("SchemaAttributeTest", () => "schema\\-attribute".FollowedBy(@"\(", tAttributeDeclaration, @"\)"));
 
-         tAttributeDeclaration = Rule(() => tAttributeName);
+         tAttributeDeclaration = Define("AttributeDeclaration", () => tAttributeName);
 
-         tElementTest = Rule(() => "element".FollowedBy(@"\(", tElementNameOrWildcard.FollowedBy(",".FollowedBy(tTypeName, @"\?".Optional()).Optional()).Optional() , @"\)"));
+         tElementTest = Define("ElementTest", () => "element".FollowedBy(@"\(", tElementNameOrWildcard.FollowedBy(",".FollowedBy(tTypeName, @"\?".Optional()).Optional()).Optional() , @"\)"));
 
-         tElementNameOrWildcard = Rule(() => tElementName.Or(@"\*"));
+         tElementNameOrWildcard = Define("ElementNameOrWildcard", () => tElementName.Or(@"\*"));
 
-         tSchemaElementTest = Rule(() => "schema\\-element".FollowedBy(@"\(", tElementDeclaration, @"\)"));
+         tSchemaElementTest = Define("SchemaElementTest", () => "schema\\-element".FollowedBy(@"\(", tElementDeclaration, @"\)"));
 
-         tElementDeclaration = Rule(() => tElementName);
+         tElementDeclaration = Define("ElementDeclaration", () => tElementName);
 
-         tAttributeName = Rule(() => tQName);
+         tAttributeName = Define("AttributeName", () => tQName);
 
-         tElementName = Rule(() => tQName);
+         tElementName = Define("ElementName", () => tQName);
 
-         tTypeName = Rule(() => tQName);
+         tTypeName = Define("TypeName", () => tQName);
 
          // todo: more work, custom parsing
          // the below works, but c.Advance is wrong.
@@ -267,7 +269,7 @@ namespace XPath2.Parser
        //  ParseNode tNameStartChar = "[A-Z] | _ | [a-z] | [\xC0-\xD6] | [\xD8-\xF6] | [\xF8-\x2FF] | [\x370-\x37D] | [\x37F-\x1FFF] | [\x200C-\x200D] | [\x2070-\x218F] | [\x2C00-\x2FEF] | [\x3001-\xD7FF] | [\xF900-\xFDCF] | [\xFDF0-\xFFFD]".Terminal();
        //  ParseNode tNameChar = tNameStartChar.Or("\\- | \\. | [0-9] | \xB7 | [\x0300-\x036F] | [\x203F-\x2040]");
 
-         tVarName = Rule(() => tQName);
+         tVarName = Define("VarName", () => tQName);
 
 
          // todo
@@ -278,11 +280,11 @@ namespace XPath2.Parser
          String tNameStartChar = "[A-Z] | _ | [a-z] | [\xC0-\xD6] | [\xD8-\xF6] | [\xF8-\x2FF] | [\x370-\x37D] | [\x37F-\x1FFF] | [\x200C-\x200D] | [\x2070-\x218F] | [\x2C00-\x2FEF] | [\x3001-\xD7FF] | [\xF900-\xFDCF] | [\xFDF0-\xFFFD]";
          String tNameChar = "\\- | \\. | [0-9] | \xB7 | [\x0300-\x036F] | [\x203F-\x2040]";
 
-         tNCName = String.Format("({0})({0}|{1})*", tNameStartChar, tNameChar).Terminal();
+         tNCName = String.Format("({0})({0}|{1})*", tNameStartChar, tNameChar).Terminal().SetName("NCName");
 
          // Parse NCNAME | NCNAME : NCNAME, rewritten for 1 lookahead.
          //tQName = tNCName.FollowedBy(":".FollowedBy(tNCName).Optional());
-         tQName = String.Format("({0})({0}|{1})*(:({0})({0}|{1})*)?", tNameStartChar, tNameChar).Terminal();
+         tQName = String.Format("({0})({0}|{1})*(:({0})({0}|{1})*)?", tNameStartChar, tNameChar).Terminal().SetName("QName");
          //tQName = "QNAME".Terminal();
          
          
@@ -292,18 +294,19 @@ namespace XPath2.Parser
          // From the spec, namestartchar:
          
          //tStringLiteral = "'[a-z]".Terminal();
-         tStringLiteral = "(\"(\"\"|[^\"])*\"|'(''|[^'])*')".Terminal();
-         
+        // tStringLiteral = "(\"(\"\"|[^\"])*\"|'(''|[^'])*')".Terminal().SetName("StringLiteral");
+         tStringLiteral = "\"(\"\"|[^\"])*".FollowedBy("\"").Or("'(''|[^'])*".FollowedBy("'")).SetName("StringLiteral");
+
          //tIntegerLiteral = "Int".Terminal();
-         tIntegerLiteral = "[0-9]+".Terminal();
+         tIntegerLiteral = "[0-9]+".Terminal().SetName("IntegerLiteral");
 
          //tDecimalLiteral = "Dec".Terminal();
          // ("." Digits) | (Digits "." [0-9]*)
-         tDecimalLiteral = @"(\.[0-9]+)|([0-9]+\.[0-9]*)".Terminal();
+         tDecimalLiteral = @"(\.[0-9]+)|([0-9]+\.[0-9]*)".Terminal().SetName("DecimalLiteral");
          
          //tDoubleLiteral = "E".Terminal();
          // (("." Digits) | (Digits ("." [0-9]*)?)) [eE] [+-]? Digits
-         tDoubleLiteral = @"((\.[0-9]+)|([0-9]+(\.[0-9]*)?))[eE][\+\-]?[0-9]+".Terminal();
+         tDoubleLiteral = @"((\.[0-9]+)|([0-9]+(\.[0-9]*)?))[eE][\+\-]?[0-9]+".Terminal().SetName("DoubleLiteral");
       }
    }
 }

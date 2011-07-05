@@ -25,10 +25,10 @@ namespace XPath2Tests
       {
          ParseNode A = null, B = null;
 
-         Root = Rule(() => A);
+         Root = Define(() => A);
 
-         A = Rule(() => B);
-         B = Rule(() => A);
+         A = Define(() => B);
+         B = Define(() => A);
       }
    }
 
@@ -39,8 +39,8 @@ namespace XPath2Tests
          ParseNode A = null, B = null;
 
          // A -> A B
-         Root = Rule(() => A);
-         A = Rule(() => A.FollowedBy(B));
+         Root = Define(() => A);
+         A = Define(() => A.FollowedBy(B));
          B = "B".Terminal();
       }
    }
@@ -50,7 +50,7 @@ namespace XPath2Tests
       protected override void DefineGrammar()
       {
          // lookahead of more than 1 would be needed here
-         Root = Rule(() => "a".FollowedBy("b", "c").Or("a".FollowedBy("b", "d")));
+         Root = Define(() => "a".FollowedBy("b", "c").Or("a".FollowedBy("b", "d")));
          // A = a b c | a b d
       }
    }
@@ -63,9 +63,9 @@ namespace XPath2Tests
       protected override void DefineGrammar()
       {
          ParseNode X = null, Y = null;
-         Root = Rule(() => X.EOF());
-         X = Rule(() => Y.FollowedBy(";"));
-         Y = Rule(() => "\\(".FollowedBy(X, "\\)"));
+         Root = Define(() => X.Eof());
+         X = Define(() => Y.FollowedBy(";"));
+         Y = Define(() => "\\(".FollowedBy(X, "\\)"));
          //X = Y ';'. 
          //Y = '(' X ')'
       }
@@ -76,7 +76,7 @@ namespace XPath2Tests
       protected override void DefineGrammar()
       {
          ParseNode A = null, B = null;
-         Root = Rule(() => A.Or(B).EOF());
+         Root = Define(() => A.Or(B).Eof());
          A = "a".FollowedBy("b").FollowedBy("c");
          B = "a".FollowedBy("b").FollowedBy("d");
       }
@@ -89,10 +89,10 @@ namespace XPath2Tests
          ParseNode A = null, B = null, C = null;
   
          // Coco/R produces warnings on this
-         Root = Rule(() => A.EOF());
-         A = Rule(() => "a".Or(B.FollowedBy(C, "d"))); //  A = (a | B C d). 
-         B = Rule(() => "b".Optional().FollowedBy("a")); // B = [b] a. 
-         C = Rule(() => "c".FollowedBy("d".ZeroOrMore())); //C = c {d}.
+         Root = Define(() => A.Eof());
+         A = Define(() => "a".Or(B.FollowedBy(C, "d"))); //  A = (a | B C d). 
+         B = Define(() => "b".Optional().FollowedBy("a")); // B = [b] a. 
+         C = Define(() => "c".FollowedBy("d".ZeroOrMore())); //C = c {d}.
       }
    }
 
@@ -101,7 +101,7 @@ namespace XPath2Tests
       protected override void DefineGrammar()
       {
          ParseNode A = null; // no production for A
-         Root = Rule(() => A);
+         Root = Define(() => A);
       }
    }
 
@@ -110,7 +110,7 @@ namespace XPath2Tests
       protected override void DefineGrammar()
       {
          ParseNode A = null, B = null; // no production for B
-         Root = Rule(() => A.FollowedBy(B));
+         Root = Define(() => A.FollowedBy(B));
          A = "a".Terminal();
       }
    }
@@ -120,11 +120,92 @@ namespace XPath2Tests
       protected override void DefineGrammar()
       {
          ParseNode A = null, B = null;
-         Root = Rule(() => A);
+         Root = Define(() => A);
          A = "a".Terminal();
-         B = Rule(() => "b".Terminal()); // b is not reachable..
+         B = Define(() => "b".Terminal()); // b is not reachable..
 
-         // todo: if we're not using Rule, unreachable terminals are not detected...
+         // todo: if we're not using Define, unreachable terminals are not detected...
+      }
+   }
+
+   // todo
+   internal class ConflictingTerminal1 : TestParser
+   {
+      protected override void DefineGrammar()
+      {
+         Root = "abc".Or("abc");
+      }
+   }
+
+   // todo
+   internal class ConflictingTerminal2 : TestParser
+   {
+      protected override void DefineGrammar()
+      {
+         ParseNode tAbc = "abc".Terminal();
+         Root = tAbc.Or(tAbc);
+      }
+   }
+
+   // todo
+   internal class ConflictingTerminal5 : TestParser
+   {
+      protected override void DefineGrammar()
+      {
+         Root = "abc".Or("abc|foo");
+      }
+   }
+
+   internal class InconclusiveLookahead1 : TestParser
+   {
+      protected override void  DefineGrammar()
+      {
+         ParseNode A = null, B = null;
+         Root = Define(() => A.Or(B).Eof());
+
+         // A and B have lookahead that intersects in "bar", so we can not make a choice between A or B when parsing.
+         A = "foo".FollowedBy("bar|baz");
+         B = "foo".FollowedBy("bar|qux");
+      }
+   }
+
+   internal class InconclusiveLookahead2 : TestParser
+   {
+      protected override void DefineGrammar()
+      {
+         ParseNode A = null, B = null;
+         Root = Define(() => A.Or(B).Eof());
+
+         // A and B have lookahead that intersects in "bar", so we can not make a choice between A or B when parsing.
+         A = "foo".FollowedBy("bar|baz".Or("bar|qux")); // here we cannot make a choice
+         B = "foo".FollowedBy("someother");
+      }
+   }
+
+   internal class ConclusiveLookahead3 : TestParser
+   {
+      protected override void DefineGrammar()
+      {
+         ParseNode A = null, B = null;
+         Root = Define(() => A.Or(B).Eof());
+
+         // A and B have lookahead that intersects in "bar", so we can not make a choice between A or B when parsing.
+         A = "foo".FollowedBy("bar".FollowedBy("baz").Or("bar".FollowedBy("qux"))); // here we CAN make a choice
+         B = "foo".FollowedBy("someother");
+      }
+   }
+
+   // Differs from 3 in the sense that there the "bar" lookahead there are equal. Here they only intersect.
+   internal class ConclusiveLookahead4 : TestParser
+   {
+      protected override void DefineGrammar()
+      {
+         ParseNode A = null, B = null;
+         Root = Define(() => A.Or(B).Eof());
+
+         // A and B have lookahead that intersects in "bar", so we can not make a choice between A or B when parsing.
+         A = "foo".FollowedBy("bar|1".FollowedBy("baz").Or("bar|2".FollowedBy("qux"))); // here we CAN make a choice
+         B = "foo".FollowedBy("someother");
       }
    }
 
@@ -141,12 +222,12 @@ namespace XPath2Tests
       {
          ParseNode A = null, B = null, C = null, D = null;
 
-         Root = Rule(() => A);
+         Root = Define(() => A);
 
-         A = Rule(() => B);
-         B = Rule(() => C);
-         C = Rule(() => D);
-         D = Rule(() => B);
+         A = Define(() => B);
+         B = Define(() => C);
+         C = Define(() => D);
+         D = Define(() => B);
       }
    }
 
@@ -154,7 +235,7 @@ namespace XPath2Tests
    {
       protected override void DefineGrammar()
       {
-         Root = Rule(() => Root);
+         Root = Define(() => Root);
       }
    }
 
@@ -163,8 +244,16 @@ namespace XPath2Tests
       protected override void DefineGrammar()
       {
          ParseNode A = null;
-         Root = Rule(() => A);
-         A = Rule(() => A.Or(A));
+         Root = Define(() => A);
+         A = Define(() => A.Or(A));
+      }
+   }
+
+   internal class PrefixGrammar : TestParser
+   {
+      protected override void DefineGrammar()
+      {
+         Root = "abcd".Or("abce");
       }
    }
 
@@ -239,6 +328,50 @@ namespace XPath2Tests
    [TestClass]
    public class ParserGeneratorTests
    {
+      [TestMethod]
+      public void TestConflictingTerminals()
+      {
+//          ParserBase tParser = new ConflictingTerminal2().Build();
+
+      }
+
+      [TestMethod]
+      public void InconclusiveLookaheadTest()
+      {
+         try
+         {
+            new InconclusiveLookahead1().Build();
+            Assert.Fail("Inconclusive lookahead should not build.");
+         }
+         catch (ParseException)
+         {
+            // OK
+         }
+
+         try
+         {
+            new IncompleteGrammar2().Build();
+            Assert.Fail("Inconclusive lookahead should not build.");
+         }
+         catch (ParseException)
+         {
+            // OK
+         }
+
+         new ConclusiveLookahead3().Build(); // this should be ok
+         new ConclusiveLookahead4().Build(); // this one as well
+      }
+
+      [TestMethod]
+      public void TestPrefixGrammar()
+      {
+         // NOTE: this is not really a test, but this grammar internally uses lookahead, when it would not need to.
+         // todo: can we make it so this won't happen?
+         var tParser = new PrefixGrammar().Build();
+         tParser.Parse("abcd");
+         tParser.Parse("abce");
+      }
+
       [TestMethod]
       public void TestMath()
       {

@@ -86,6 +86,7 @@ namespace SimpleRegexIntersector
       }
    }
 
+   // todo: look at replacing this with Tuples.
    public class Pair<U, V> 
    { 
       public U Left; public V Right;
@@ -587,11 +588,9 @@ namespace SimpleRegexIntersector
          return true;
       }
 
-      // todo: this really sucks balls, but I'll address that later
-      // todo: check if the clone is needed and rename
-      public Int32 EqualsConsistentHashCodeNoRewrite()
+      public Int32 EqualsConsistentHashCode()
       {
-         return Clone().EqualsConsistentHashCode(new Dictionary<SimpleRegex, Int32>(), 1);
+         return EqualsConsistentHashCode(new Dictionary<SimpleRegex, Int32>(), 1);
       }
 
       // Every regex is:
@@ -603,6 +602,9 @@ namespace SimpleRegexIntersector
       // We may have an issue with a recursive call here, ie 
       // hashcode h = f(h), some function of itself.
       // So, we need some fixed point, but not sure how yet.
+      // NOTE: for now this uses only the letters of the regex, this means you need to used NORMALIZED regular expressions, ie, use the builder in order
+      // to have rewritten regular expressions. This ensures that a regex such as (a|[^a])b has the same hashcode as .b etc.
+      // todo: make his internal and expose through builder instead to emphasize fact normalization needed?
       protected Int32 EqualsConsistentHashCode(Dictionary<SimpleRegex, Int32> env, Int32 cnt)
       {
          // No effect on hashocde
@@ -654,7 +656,7 @@ namespace SimpleRegexIntersector
 
       public Boolean SemanticEquals(SimpleRegex other)
       {
-         return Clone().SemanticEquals(new HashSet<Pair>(), other.Clone());
+         return SemanticEquals(new HashSet<Pair>(), other);
       }
 
       protected static Char Min(Char left, Char right)

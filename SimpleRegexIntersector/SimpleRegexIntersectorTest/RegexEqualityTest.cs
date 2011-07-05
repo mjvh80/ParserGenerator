@@ -10,7 +10,7 @@ namespace SimpleRegexIntersectorTest
    [TestClass]
    public class RegexEqualityTest
    {
-      private void AssertRegexEquals(String left, String right)
+      private static void AssertRegexEquals(String left, String right)
       {
          // Now do the same for our builder, without rewriting.
          // 1. Collect alphabet, and ranges.
@@ -22,8 +22,16 @@ namespace SimpleRegexIntersectorTest
          if (!tLeft.SemanticEquals(tRight))
             throw new Exception(String.Format("[BUILDER] {0} is not equal to {1}: assertion failure", left, right));
 
-         if (tLeft.EqualsConsistentHashCodeNoRewrite() != tRight.EqualsConsistentHashCodeNoRewrite())
+         if (tLeft.EqualsConsistentHashCode() != tRight.EqualsConsistentHashCode())
             throw new Exception(String.Format("[BUILDER] {0} hashcode not equals consistent with {1}", left, right));
+
+         // Also test cloning works.
+         SimpleRegex tClone = tLeft.Clone();
+         if (Object.ReferenceEquals(tClone, tLeft))
+            throw new Exception("Bad clone: it is equal to itself by reference.");
+
+         if (!tLeft.Clone().SemanticEquals(tLeft))
+            throw new Exception(String.Format("[BUILDER] {0} clone is not equal to itself: assertion failure", left));
       }
 
       private static SimpleRegexBuilder _GetBuilder(String left, String right)
@@ -73,14 +81,14 @@ namespace SimpleRegexIntersectorTest
       private void AssertHashCodesEqual(String left, String right)
       {
          SimpleRegexBuilder tBuilder = _GetBuilder(left, right);
-         if (tBuilder.Parse(left).EqualsConsistentHashCodeNoRewrite() != tBuilder.Parse(right).EqualsConsistentHashCodeNoRewrite())
+         if (tBuilder.Parse(left).EqualsConsistentHashCode() != tBuilder.Parse(right).EqualsConsistentHashCode())
             throw new Exception(String.Format("[BUILDER] Hashcodes do not match for {0} and {1}.", left, right));
       }
 
       private void AssertHashCodesDoNotEqual(String left, String right)
       {
          SimpleRegexBuilder tBuilder = _GetBuilder(left, right);
-         if (tBuilder.Parse(left).EqualsConsistentHashCodeNoRewrite() == tBuilder.Parse(right).EqualsConsistentHashCodeNoRewrite())
+         if (tBuilder.Parse(left).EqualsConsistentHashCode() == tBuilder.Parse(right).EqualsConsistentHashCode())
             throw new Exception(String.Format("[BUILDER] Hashcodes do not match for {0} and {1}.", left, right));
       }
 
@@ -95,6 +103,7 @@ namespace SimpleRegexIntersectorTest
          AssertRegexEquals("a+", "aa*");
          AssertRegexEquals("a|b", "b|a");
          AssertRegexEquals("a?a*", "a*");
+         AssertRegexEquals("(a|[^a])b", ".b");
       }
 
       [TestMethod]

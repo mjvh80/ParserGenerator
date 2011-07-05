@@ -69,24 +69,25 @@ namespace SimpleCC
             ParseNode Production = null, Name = null, Definition = null, Sequence = null,
                Literal = null, OccurencyMarker = null, Unit = null, NewLine = null;
 
-            Root = Rule(() => Production.OneOrMore().EOF());
+            Root = Define(() => Production.OneOrMore().Eof());
 
-            Production = Rule(() => Name.FollowedBy("::=".FollowedBy(Definition).FollowedBy(";")));
+            Define(() => Production, () => Name.FollowedBy("::=".FollowedBy(Definition).FollowedBy(";|\r\n|\n"))); // todo: test/make work end of line termination
 
             // carriage return with optional linefeed, or linefeed
             //NewLine = "\r".FollowedBy("\n".Optional()).Or("\n"); // todo.. needs bit of work with whitespace in context
 
-            Definition = Rule(() => Sequence.FollowedBy("\\|".FollowedBy(Definition).ZeroOrMore()));
+            Define(() => Definition, () => Sequence.FollowedBy("\\|".FollowedBy(Definition).ZeroOrMore()));
 
-            Sequence = Rule(() => Unit.FollowedBy(Unit.ZeroOrMore()));
+            Define(() => Sequence, () => Unit.FollowedBy(Unit.ZeroOrMore()));
 
-            Unit = Rule(() => "\\(".FollowedBy(Definition).FollowedBy("\\)").Or(Literal).Or(Name).FollowedBy(OccurencyMarker.Optional()));
+            Define(() => Unit, () => "\\(".FollowedBy(Definition).FollowedBy("\\)").Or(Literal).Or(Name).FollowedBy(OccurencyMarker.Optional()));
 
             // need string here..
-            Name = "([a-z]|[A-Z])+".Terminal();
-            Literal = "(\"(\"\"|[^\"])*\"|'(''|[^'])*')".Terminal();
+            Define(() => Name, "([a-z]|[A-Z])+");
 
-            OccurencyMarker = "\\?".Or("\\*").Or("\\+");
+            Define(() => Literal, "(\"(\"\"|[^\"])*\"|'(''|[^'])*')");
+
+            Define(() => OccurencyMarker, () => "\\?".Or("\\*").Or("\\+"));
 
             // flatten
             Root.Rewrite(n => new FlatteningVisitor().Flatten((ProductionSyntaxNode)n));
@@ -107,10 +108,10 @@ namespace SimpleCC
                
             Production.SetCompiler(n =>
             {
-               // Given above parser, make a call to Rule on it, given a func defined here.
+               // Given above parser, make a call to Define on it, given a func defined here.
 
                // Get name value.
-               String tProductionName = (String)n.Children[0].Value;
+               String tProductionName = (String)n.Children[0].Children[0].Value;
 
                // Assertion.
                Debug.Assert(n.Children[1].Value.ToString() == "::=");
@@ -125,7 +126,7 @@ namespace SimpleCC
                   if (mProductionLookup.ContainsKey("Root"))
                      throw new InvalidOperationException("Multiple Root productions defined.");
                
-               mProductionLookup.Add(tProductionName, mActualParser.DoRule(Expression.Lambda<Func<ParseNode>>(tDefinition).Compile()));
+               mProductionLookup.Add(tProductionName, mActualParser.DoRule(tProductionName, Expression.Lambda<Func<ParseNode>>(tDefinition).Compile()));
                if (tProductionName == "Root")
                   mActualParser.SetRoot(mProductionLookup["Root"]);
 
@@ -136,19 +137,22 @@ namespace SimpleCC
             {
                Func<ParseNode> tInner = () =>
                {
+                  String tName = (String)n.Children[0].Value;
                   ParseNode tNode;
-                  if (!mProductionLookup.TryGetValue((String)n.Value, out tNode))
+                  if (!mProductionLookup.TryGetValue(tName, out tNode))
                      throw new ParseException("Production not found: " + n.Value); // todo improve
                   return tNode;
                };
-
                Expression<Func<ParseNode>> tExpr = () => tInner(); // expressions with a body cannot be converted to expression, so work around this
                return tExpr.Body;
             });
 
             Literal.SetCompiler(n =>
             {
-               Expression<Func<ParseNode>> tExpr = () => StripQuotes((String)n.Value).Terminal();
+               String tValue = (String)n.Children[0].Value;
+               if (String.IsNullOrEmpty(tValue))
+                  throw new Exception("Invalid empty literal found.");
+               Expression<Func<ParseNode>> tExpr = () => StripQuotes(tValue).Terminal();
                return tExpr.Body;
             });
 
@@ -189,7 +193,7 @@ namespace SimpleCC
                   tValue = n.Children[0].Compile();
 
                if (next < n.Children.Length) // have occurency marker
-                  tMarker = n.Children[next].Value as String;
+                  tMarker = n.Children[next].Children[0].Value as String;
 
                if (tMarker == null)
                   return tValue;
@@ -221,9 +225,9 @@ namespace SimpleCC
             return new BnfParserContext(); // todo... for now
          }
 
-         public ParseNode DoRule(Func<ParseNode> rule)
+         public ParseNode DoRule(String productionName, Func<ParseNode> rule)
          {
-            return Rule(rule);
+            return Define(productionName, rule);
          }
 
          public void SetRoot(ParseNode node)
@@ -233,7 +237,7 @@ namespace SimpleCC
 
          public void AddEofToRoot()
          {
-            Root = Root.EOF();
+            Root = Root.Eof();
          }
       }
 

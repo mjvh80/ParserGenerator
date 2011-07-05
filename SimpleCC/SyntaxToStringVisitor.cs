@@ -42,7 +42,7 @@ namespace SimpleCC
 
       public override void Visit(EofSyntaxNode pNode)
       {
-         mBuffer.Append("<<EOF>>");
+         mBuffer.Append("<<Eof>>");
       }
 
       public override void Visit(ProductionSyntaxNode pNode)
