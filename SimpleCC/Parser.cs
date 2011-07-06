@@ -7,6 +7,17 @@ using SimpleRegexIntersector;
 using System.Diagnostics;
 using System.Linq.Expressions;
 
+// Open issues / todo:
+// 1. Escaping, regex syntax often clashes with DSL syntax (it seems) requiring a lot of escaping in our definitions, e.g.
+//    see xpath code. This isn't as clean as it could be, can we do better?
+// 2. / vs //.., / should accept an Eof terminal as lookahead, how to do with SimpleRegex?
+// 3. We must review the API, in particular, look at accessibility (public, internal etc. etc.).
+// 4. We should provide with defining Interleaving as a grammar in such a way that ParseContext can still be used.
+// 5. Review calls to AdvanceInterleaved. Ensure more tests are written to test interleaving.
+// 6. Look at "issubsetof" instead of "shares prefix".
+// 7. General review of code.
+// 8. Settings, ie parse defaults greedily or not. Ability to switch off validity checks (ie faster parser generation) etc. etc.
+
 // 2 ideas:
 // 1. we can cache the current lookahead, advance takes a terminal as follows:
 //  - narrow down to a terminal that makes the choice
@@ -28,10 +39,8 @@ using System.Linq.Expressions;
 //       if >= 2 match < invalid operation, should have been detected by not allowing an intersection
 //       if 1 match: ok, got our lookahead -> parse
 //       if 0 matches: parse error
-// 4. Create a BNF parser written in our C# parser that can read and generate a parser based on a BNF input file.
+// 4. Look at M grammar for how to do projection much much better.
 
-// Known issues:
-// 1. / vs //.., / should accept an Eof terminal as lookahead, how to do with SimpleRegex?
 
 namespace SimpleCC
 {
@@ -88,34 +97,13 @@ namespace SimpleCC
       }
 
 
-      //// TODO: check ok
-      //// todo: experimental
+      //// Older code as idea. What?
       //// as we're needing lookahead, we can assume that decision terminals were needed, ie we can call GetDecisionTe..
       //public static ParseNode Lookahead(this ParseNode node, String lookaheadTerminal)
-      //{
-      //   return new ParseNode()
-      //   {
-      //      Label = node.Label + "[" + lookaheadTerminal + "]",
-      //      GetDecisionTerminals = (level) =>
-      //      {
-      //         if (level == 0) return node.GetDecisionTerminals(level);
-      //         // todo: allow multiple levels?
-      //         // todo: must do better lookahead error checking (ie check level int)
-      //         return new[] { lookaheadTerminal }; // todo: we should allow more as params or so
-      //      },
-      //      Parse = node.Parse
-      //   };
-      //}
 
+      // Idea: Not, can we do this? Is it useful?
       //public static ParseNode Not(this ParseNode node, ParseNode notNode)
-      //{
-      //   // decision terminals: node, optional is an error
-      //   // parse: node.parse, then negation parse on notNode -> extra mode which indicates parsing should fail if flag said
-      //   // and parse method succeeds
-      //   // how?
-      //   return null;
-      //}
-
+      
       // todo: overload to deal better with escaping?
       public static ParseNode Terminal(this String terminalExpression)
       {
@@ -186,7 +174,6 @@ namespace SimpleCC
          return terminalStr.Terminal().FollowedBy(node);
       }
 
-      // todo: can do this much more efficiently, ie create a parsenode, then iterate others and call parse etc.
       public static ParseNode FollowedBy(this ParseNode node, ParseNode otherNode, params Object[] others)
       {
          ParseNode tFirstNode = node.FollowedBy(otherNode);
@@ -1041,7 +1028,7 @@ namespace SimpleCC
 
 #if true
          foreach (ParseNode tOtherNode in mActions)
-            foreach (Terminal tTerminal in tOtherNode.DoGetDecisionTerminals()) // todo: must do properly
+            foreach (Terminal tTerminal in tOtherNode.DoGetDecisionTerminals())
             {
 
                if (mParseTable.ContainsTerminal(tTerminal))
@@ -1106,11 +1093,11 @@ namespace SimpleCC
 
       public override SyntaxNode Parse(ParseContext c)
       {
-         // todo: there is a way we can be much more efficient here.
+         // todo: there is a way we can be much (?) more efficient here.
          // instead of looping through the parsetable, we can lift off of .nets regex engine:
          // create a regex (( terminal 1) | ( terminal 2) | ... ), using named groups to distinguish the regexes.
          c.AdvanceInterleaved(); // todo: must integrate into walker EVEN NECESSARY NOW?
-         foreach(KeyValuePair<Terminal, ParseNode> tPair in mParseTable.KeyValues)  // todo: remove anything but the general terminal
+         foreach(KeyValuePair<Terminal, ParseNode> tPair in mParseTable.KeyValues)
             if (tPair.Key.CanAdvance(c))
             {
                SyntaxNode tResult = tPair.Value.Parse(c);
@@ -1120,18 +1107,6 @@ namespace SimpleCC
                }
                );
             }
-
-         //foreach (GeneralTerminal tTerminal in mParseTable.Terminals) // todo: remove anything but the general terminal
-         //   if (tTerminal.CanAdvance(c)) // todo: combine into optAdvance?
-         //   {
-         //      //tTerminal.AdvanceTerminal(c);
-         //      SyntaxNode tResult = mParseTable[tTerminal].Parse(c); // todo: dict lookup is not necessary, store target node in terminal itself?
-         //      return Rewrite(new ChoiceSyntaxNode()
-         //         {
-         //            Children = new [] { tResult },
-         //         }
-         //      );
-         //   }
 
          RaiseExpectedTerminals(c, mParseTable.Terminals);
          throw new InvalidOperationException(); // damn compiler
