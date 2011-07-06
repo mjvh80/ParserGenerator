@@ -364,7 +364,7 @@ namespace SimpleCC
          });
       }
 
-      public override bool LookaheadTerminals(Terminal s, HashSet<Terminal> l)
+      public override Boolean LookaheadTerminals(Terminal s, HashSet<Terminal> l)
       {
          throw new InvalidOperationException("Lookahead terminals for Eof needed.");
       }
@@ -401,7 +401,7 @@ namespace SimpleCC
          mParseTable = new ParseTable<ParseNode>();
       }
 
-      internal override bool DerivesExclusivelyTo(ParseNode pNode)
+      internal override Boolean DerivesExclusivelyTo(ParseNode pNode)
       {
          Debug.Assert(IsPrimed());
 
@@ -425,7 +425,7 @@ namespace SimpleCC
          mInnerNode.InitRegexBuilder(builder, parser);
       }
 
-      protected override bool PrimeInternal(ParserBase parser)
+      protected override Boolean PrimeInternal(ParserBase parser)
       {
          return mInnerNode.Prime(parser);
 
@@ -471,7 +471,7 @@ namespace SimpleCC
          {
             c.AdvanceInterleaved(); // todo: should not be needed.. check
 
-            foreach (GeneralTerminal tTerminal in mInnerNode.GetDecisionTerminals()) // > todo cache
+            foreach (Terminal tTerminal in mInnerNode.GetDecisionTerminals()) // > todo cache
                if (tTerminal.CanAdvance(c))
                {
                   tResult.Add(mInnerNode.Parse(c));
@@ -489,7 +489,7 @@ namespace SimpleCC
          });
       }
 
-      public override bool LookaheadTerminals(Terminal s, HashSet<Terminal> termList)
+      public override Boolean LookaheadTerminals(Terminal s, HashSet<Terminal> termList)
       {
          Debug.Assert(Mode == PrimeMode.Primed);
 
@@ -499,14 +499,14 @@ namespace SimpleCC
             return false;
       }
 
-      public override bool ParsesTerminal(Terminal s)
+      public override Boolean ParsesTerminal(Terminal s)
       {
          Debug.Assert(Mode == PrimeMode.Primed);
 
          return mInnerNode.ParsesTerminal(s);
       }
 
-      public override bool Optional
+      public override Boolean Optional
       {
          get
          {
@@ -560,7 +560,7 @@ namespace SimpleCC
       protected SimpleRegex mInitialCompiledRegex;
       protected String mTerminalExpression;
 
-      protected GeneralTerminal mTerminal;
+      protected Terminal mTerminal;
 
       public TerminalParseNode(String terminalExpr)
       {
@@ -573,12 +573,11 @@ namespace SimpleCC
       //   mTerminal = pTerminal;
       //}
 
-
-      public override bool  ParsesTerminal(Terminal s)
+      public override Boolean ParsesTerminal(Terminal s)
       {
          Debug.Assert(this.Mode == PrimeMode.Primed);
 
-         return ((GeneralTerminal)s).SemanticEquals(mTerminal);
+         return s.SemanticEquals(mTerminal);
       }
 
       internal override void InitRegexBuilder(SimpleRegexBuilder builder, ParserBase parser)
@@ -595,13 +594,13 @@ namespace SimpleCC
          }
       }
 
-      protected override bool PrimeInternal(ParserBase parser)
+      protected override Boolean PrimeInternal(ParserBase parser)
       {
          Debug.Assert(parser.RegexBuilder.IsBuilt);
          Debug.Assert(!mShouldInitBuilder);
 
          // Enough info to build our terminal.
-         mTerminal = new GeneralTerminal(mTerminalExpression, parser.RegexBuilder);
+         mTerminal = new Terminal(mTerminalExpression, parser.RegexBuilder);
          return base.PrimeInternal(parser);
       }
 
@@ -623,7 +622,7 @@ namespace SimpleCC
          return new[] { mTerminal };
       }
 
-      public override bool LookaheadTerminals(Terminal s, HashSet<Terminal> l)
+      public override Boolean LookaheadTerminals(Terminal s, HashSet<Terminal> l)
       {
          return this.ParsesTerminal(s);
       }
@@ -663,7 +662,7 @@ namespace SimpleCC
          visitor.Visit(this);
       }
 
-      internal override bool DerivesExclusivelyTo(ParseNode pNode)
+      internal override Boolean DerivesExclusivelyTo(ParseNode pNode)
       {
          if (pNode == this)
             return true;
@@ -702,7 +701,7 @@ namespace SimpleCC
          otherNode.InitRegexBuilder(builder, parser);
       }
 
-      protected override bool PrimeInternal(ParserBase parser)
+      protected override Boolean PrimeInternal(ParserBase parser)
       {
          Boolean tNodePrimed = node.Prime(parser);
 
@@ -788,7 +787,7 @@ namespace SimpleCC
          });
       }
 
-      public override bool LookaheadTerminals(Terminal s, HashSet<Terminal> termList)
+      public override Boolean LookaheadTerminals(Terminal s, HashSet<Terminal> termList)
       {
          Debug.Assert(Mode == PrimeMode.Primed);
 
@@ -823,7 +822,7 @@ namespace SimpleCC
             return otherNode.LookaheadTerminals(s, termList) && !otherNode.Optional;
       }
 
-      public override bool Optional
+      public override Boolean Optional
       {
          get
          {
@@ -899,7 +898,7 @@ namespace SimpleCC
          return tResult.ToArray();
       }
 
-      internal override bool DerivesExclusivelyTo(ParseNode pNode)
+      internal override Boolean DerivesExclusivelyTo(ParseNode pNode)
       {
          Debug.Assert(this.IsPrimed());
 
@@ -936,7 +935,7 @@ namespace SimpleCC
             tNode.InitRegexBuilder(builder, parser);
       }
 
-      protected override bool PrimeInternal(ParserBase parser)
+      protected override Boolean PrimeInternal(ParserBase parser)
       {
          Boolean tAllPrimed = true;
 
@@ -1099,7 +1098,7 @@ namespace SimpleCC
          return mParseTable.Terminals.ToArray(); // todo array?
       }
 
-      public override bool ParsesTerminal(Terminal s)
+      public override Boolean ParsesTerminal(Terminal s)
       {
          Debug.Assert(this.Mode == PrimeMode.Primed);
          return mParseTable.ContainsTerminal(s) && mParseTable[s].ParsesTerminal(s);
@@ -1138,7 +1137,7 @@ namespace SimpleCC
          throw new InvalidOperationException(); // damn compiler
       }
 
-      public override bool LookaheadTerminals(Terminal s, HashSet<Terminal> l)
+      public override Boolean LookaheadTerminals(Terminal s, HashSet<Terminal> l)
       {
          Debug.Assert(Mode == PrimeMode.Primed);
 
@@ -1149,7 +1148,7 @@ namespace SimpleCC
          return false;
       }
 
-      public override bool Optional
+      public override Boolean Optional
       {
          get
          {
@@ -1434,7 +1433,7 @@ namespace SimpleCC
    public class LookaheadParseNode : ParseNode
    {
       protected Dictionary<Terminal, HashSet<ParseNode>> mConflictMap;
-      protected Dictionary<GeneralTerminal, List<LookaheadInfo>> mLookaheadMap;
+      protected Dictionary<Terminal, List<LookaheadInfo>> mLookaheadMap;
 
 
       // todo: must make this more general, ability to add nodes if conflicts are more general...
@@ -1450,9 +1449,9 @@ namespace SimpleCC
 
          this.Prime(null); // todo: make bit nicer, just mark as primed.. not applicable here..
 
-         // For lookahead we need a map Terminal -> list of Pair(LookaheadTerminals, node)
+         // For lookahead we need a map GeneralTerminal -> list of Pair(LookaheadTerminals, node)
          // ie choose node if the lookahead terminal were to match after terminal
-         mLookaheadMap = new Dictionary<GeneralTerminal, List<LookaheadInfo>>();
+         mLookaheadMap = new Dictionary<Terminal, List<LookaheadInfo>>();
          foreach (var tItem in pConflictMap)
          {
             foreach (ParseNode tNode in tItem.Value)
@@ -1474,14 +1473,14 @@ namespace SimpleCC
                if (tIsDefaultRoute || tLookaheadTerminals.Count > 0)
                {
                   List<LookaheadInfo> tList;
-                  if (!mLookaheadMap.TryGetValue((GeneralTerminal)tItem.Key, out tList))
+                  if (!mLookaheadMap.TryGetValue(tItem.Key, out tList))
                   {
                      tList = new List<LookaheadInfo>();
-                     mLookaheadMap.Add((GeneralTerminal)tItem.Key, tList);
+                     mLookaheadMap.Add(tItem.Key, tList);
                   }
 
                   tList.Add(new LookaheadInfo() { Terminals = tLookaheadTerminals, Node = tNode, IsDefaultRoute = tIsDefaultRoute });
-                  //tLookaheadMap.Add(tItem.Key, new Pair<List<Terminal>, ParseNode>() { Left = tLookaheadTerminals, Right = tNode });
+                  //tLookaheadMap.Add(tItem.Key, new Pair<List<GeneralTerminal>, ParseNode>() { Left = tLookaheadTerminals, Right = tNode });
                }
                else
                   throw new Exception("no lookahead terminals");
@@ -1492,7 +1491,7 @@ namespace SimpleCC
          // This does a lot of work.
 
 
-         List<GeneralTerminal> tDefaultTerminals = new List<GeneralTerminal>();
+         List<Terminal> tDefaultTerminals = new List<Terminal>();
          Int32 tCount = 0;
 
          foreach(var tEntry in mLookaheadMap)
@@ -1509,8 +1508,8 @@ namespace SimpleCC
                foreach (var tOtherValue in tEntry.Value.Skip(i))
                {
                   // For each terminal of the current node, check against all other terminals of the other nodes.
-                  foreach (GeneralTerminal tTerminal in tEnumerator.Current.Terminals)
-                     foreach (GeneralTerminal tOtherTerminal in tOtherValue.Terminals)
+                  foreach (Terminal tTerminal in tEnumerator.Current.Terminals)
+                     foreach (Terminal tOtherTerminal in tOtherValue.Terminals)
                         if (tTerminal.SimpleRegex.Intersects(tOtherTerminal.SimpleRegex))
                            throw new ParseException("Inconclusive lookahead, terminals {0} and {1} share possible common input.", tTerminal, tOtherTerminal);
                }
@@ -1533,7 +1532,7 @@ namespace SimpleCC
                {
                   if (tDefaultTerminals.Count > 0) // see if we have a conflict
                   {
-                     foreach (GeneralTerminal tOtherDefaultTerm in tDefaultTerminals)
+                     foreach (Terminal tOtherDefaultTerm in tDefaultTerminals)
                         if (tEntry.Key.SimpleRegex.Intersects(tOtherDefaultTerm.SimpleRegex))  // sharing a prefix is OK here: we'll handle this in the parser, they should just not intersect
                            throw new ParseException("2 terminals with defaults clashing"); // todo: obviously improve the msg here
                   }
@@ -1543,14 +1542,14 @@ namespace SimpleCC
 
                // NOTE: all regexes are already normalized, the result is also normalized
                SimpleRegex tLeftRegex = SimpleRegex.Sequence(tEntry.Key.SimpleRegex,
-                  SimpleRegex.Choice(from t in tInfo.Terminals select ((GeneralTerminal)t).SimpleRegex));
+                  SimpleRegex.Choice(from t in tInfo.Terminals select t.SimpleRegex));
 
                foreach (var tOtherEntry in mLookaheadMap.Skip(tCount)) // start past entry
                {
                   foreach (var tOtherPair in tOtherEntry.Value)
                   {
                      SimpleRegex tRightRegex = SimpleRegex.Sequence(tOtherEntry.Key.SimpleRegex,
-                        SimpleRegex.Choice(from t in tOtherPair.Terminals select ((GeneralTerminal)t).SimpleRegex));
+                        SimpleRegex.Choice(from t in tOtherPair.Terminals select t.SimpleRegex));
 
                      if (tLeftRegex.Intersects(tRightRegex))
                         throw new ParseException("inconclusive lookahead");
@@ -1566,7 +1565,7 @@ namespace SimpleCC
       }
 
       // NOTE: this has been added, not entirely sure if correct!!
-      public override bool LookaheadTerminals(Terminal s, HashSet<Terminal> l)
+      public override Boolean LookaheadTerminals(Terminal s, HashSet<Terminal> l)
       {
          // todo: correct?
          Boolean tResult = true;
@@ -1582,10 +1581,10 @@ namespace SimpleCC
 
       // A lookahead node parser the terminal if the key is equal (ie it parses) and the actual lookahead selector
       // is the default route.
-      public override bool ParsesTerminal(Terminal pTerminal)
+      public override Boolean ParsesTerminal(Terminal pTerminal)
       {
          foreach(var tPair in mLookaheadMap)
-            if (tPair.Key.SemanticEquals((GeneralTerminal)pTerminal))
+            if (tPair.Key.SemanticEquals(pTerminal))
                foreach(var tInfo in tPair.Value)
                   if (tInfo.IsDefaultRoute)
                   //if (tInfo.Terminals.Any(t => t is DefaultTerminal))
@@ -1606,7 +1605,7 @@ namespace SimpleCC
          ParseNode tDefaultNode = null; // chosen if no lookahead matches.
 
          //foreach (GeneralTerminal tTerminal in mLookaheadMap.Keys)
-         foreach (KeyValuePair<GeneralTerminal, List<LookaheadInfo>> tTerminalListPair in mLookaheadMap)
+         foreach (KeyValuePair<Terminal, List<LookaheadInfo>> tTerminalListPair in mLookaheadMap)
          {
             //if (tTerminal.CanAdvance(c))
             //{
@@ -1617,7 +1616,7 @@ namespace SimpleCC
                foreach (var tInfo in tTerminalListPair.Value)
                {
                   // Try to parse.
-                  foreach (GeneralTerminal tLookaheadTerminal in tInfo.Terminals)
+                  foreach (Terminal tLookaheadTerminal in tInfo.Terminals)
                      if (tLookaheadTerminal.CanAdvance(c))
                      {
                         // NOW we're in business.
@@ -1667,7 +1666,7 @@ namespace SimpleCC
       public ParseNode Node;
       public Boolean IsDefaultRoute = false;
 
-      public override bool Equals(object obj)
+      public override Boolean Equals(object obj)
       {
          LookaheadInfo tOther = obj as LookaheadInfo;
          return tOther != null && Terminals.Equals(tOther.Terminals) && Node.Equals(tOther.Node) && IsDefaultRoute == tOther.IsDefaultRoute;
@@ -1696,7 +1695,7 @@ namespace SimpleCC
          mName = name;
       }
 
-      internal override bool DerivesExclusivelyTo(ParseNode pNode)
+      internal override Boolean DerivesExclusivelyTo(ParseNode pNode)
       {
          return this == pNode || mNode.DerivesExclusivelyTo(pNode);
       }
@@ -1730,7 +1729,7 @@ namespace SimpleCC
          mNode.InitRegexBuilder(builder, parser);
       }
 
-      protected override bool PrimeInternal(ParserBase parser)
+      protected override Boolean PrimeInternal(ParserBase parser)
       {
          // prevents things like : A -> B and B -> A
          // todo: it would be MUCH nicer if we could say which rule etc. Could we do this? Reflection (horrible?)?
@@ -1749,7 +1748,7 @@ namespace SimpleCC
          return tResult;
       }
 
-      public override bool Optional
+      public override Boolean Optional
       {
          get
          {
@@ -1783,13 +1782,13 @@ namespace SimpleCC
          } );
       }
 
-      public override bool ParsesTerminal(Terminal pTerminal)
+      public override Boolean ParsesTerminal(Terminal pTerminal)
       {
          Debug.Assert(Mode == PrimeMode.Primed);
          return mNode.ParsesTerminal(pTerminal);
       }
 
-      public override bool LookaheadTerminals(Terminal s, HashSet<Terminal> l)
+      public override Boolean LookaheadTerminals(Terminal s, HashSet<Terminal> l)
       {
          Debug.Assert(Mode == PrimeMode.Primed);
          return mNode.LookaheadTerminals(s, l);
@@ -1807,18 +1806,7 @@ namespace SimpleCC
       }
    }
 
-   public abstract class Terminal
-   {
-      public abstract Boolean CanAdvance(ParseContext ctx);
-      public abstract String AdvanceTerminal(ParseContext ctx);
-      public abstract Boolean OptAdvance(ParseContext ctx);
-
-      public abstract Terminal Clone();
-
-      public abstract Boolean ConflictsWith(Terminal pOther);
-   }
-
-   public class GeneralTerminal : Terminal
+   public class Terminal
    {
       protected String mExpression;
       protected Boolean mEscape;
@@ -1832,7 +1820,7 @@ namespace SimpleCC
       public SimpleRegex SimpleRegex { get { return mSimpleRegex; } }
 
       // todo: remove once DefaultTerminal is no longer a GeneralTerminal.
-      public GeneralTerminal() { }
+      public Terminal() { }
 
       //public GeneralTerminal(String expr) : this(expr, false) { }
 
@@ -1846,16 +1834,16 @@ namespace SimpleCC
       //   mRegex = new Regex(escape ? Regex.Escape(expr) : expr, RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace); // todo: options
       //}
 
-      public GeneralTerminal(String expr, SimpleRegexBuilder regexBuilder)
+      public Terminal(String expr, SimpleRegexBuilder regexBuilder)
       {
          mExpression = expr;
          mSimpleRegex = regexBuilder.Parse(expr);
          mRegex = new Regex(expr, RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace); // todo: same as above
       }
 
-      public override Terminal Clone()
+      public virtual Terminal Clone()
       {
-         GeneralTerminal tResult = new GeneralTerminal();
+         Terminal tResult = new Terminal();
          tResult.mExpression = this.mExpression;
          tResult.mSimpleRegex = this.mSimpleRegex.Clone();
          tResult.mRegex = this.mRegex;
@@ -1890,7 +1878,7 @@ namespace SimpleCC
          return CheckCache(ctx, out tDummy);
       }
 
-      public override bool CanAdvance(ParseContext ctx)
+      public virtual Boolean CanAdvance(ParseContext ctx)
       {
          if (CheckCache(ctx))
             return true;
@@ -1904,7 +1892,7 @@ namespace SimpleCC
          return false;
       }
 
-      public override bool OptAdvance(ParseContext ctx)
+      public virtual Boolean OptAdvance(ParseContext ctx)
       {
          ctx.AdvanceInterleaved();
 
@@ -1931,7 +1919,7 @@ namespace SimpleCC
          return true;
       }
 
-      public override String AdvanceTerminal(ParseContext ctx)
+      public virtual String AdvanceTerminal(ParseContext ctx)
       {
          ctx.AdvanceInterleaved();
 
@@ -1957,14 +1945,9 @@ namespace SimpleCC
       }
 
       // todo: this is only used in or, do there explicitly?
-      public override bool ConflictsWith(Terminal pOther)
+      public virtual Boolean ConflictsWith(Terminal pOther)
       {
-         if (pOther is GeneralTerminal)
-         {
-            return mSimpleRegex.SharesCommonPrefixWith(((GeneralTerminal)pOther).mSimpleRegex);
-         }
-         else
-            throw new InvalidOperationException("remove other terminals");
+         return mSimpleRegex.SharesCommonPrefixWith(pOther.mSimpleRegex); 
       }
 
       public override string ToString()
@@ -1973,9 +1956,9 @@ namespace SimpleCC
       }
 
       //// We need this for Terminal.ParsesTerminal etc.
-      public bool SemanticEquals(object obj)
+      public Boolean SemanticEquals(object obj)
       {
-         GeneralTerminal tOther = obj as GeneralTerminal;
+         Terminal tOther = obj as Terminal;
          if (tOther == null)
             return false;
 
@@ -1990,7 +1973,7 @@ namespace SimpleCC
          return false;
       }
 
-      public override bool Equals(object obj)
+      public override Boolean Equals(object obj)
       {
          return SemanticEquals(obj); // todo: if this ok, can remove of course
       }
@@ -2067,7 +2050,7 @@ namespace SimpleCC
       public T GetMatchingTerminal(Terminal pTerminal)
       {
          //return Table.Keys.Any(k => k == pTerminal ||  ((GeneralTerminal)k).SemanticEquals(pTerminal));
-         var tResult = from k in Table.Keys where k == pTerminal || ((GeneralTerminal)k).SemanticEquals(pTerminal) select this[k];
+         var tResult = from k in Table.Keys where k == pTerminal || k.SemanticEquals(pTerminal) select this[k];
          if (tResult.Count() > 1)
             throw new Exception("todo");
          return tResult.FirstOrDefault();
