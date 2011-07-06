@@ -1434,7 +1434,7 @@ namespace SimpleCC
    public class LookaheadParseNode : ParseNode
    {
       protected Dictionary<Terminal, HashSet<ParseNode>> mConflictMap;
-      protected Dictionary<GeneralTerminal, List<Pair<HashSet<Terminal>, ParseNode>>> mLookaheadMap;
+      protected Dictionary<GeneralTerminal, List<LookaheadInfo>> mLookaheadMap;
 
 
       // todo: must make this more general, ability to add nodes if conflicts are more general...
@@ -1452,32 +1452,35 @@ namespace SimpleCC
 
          // For lookahead we need a map Terminal -> list of Pair(LookaheadTerminals, node)
          // ie choose node if the lookahead terminal were to match after terminal
-         mLookaheadMap = new Dictionary<GeneralTerminal, List<Pair<HashSet<Terminal>, ParseNode>>>();
+         mLookaheadMap = new Dictionary<GeneralTerminal, List<LookaheadInfo>>();
          foreach (var tItem in pConflictMap)
          {
             foreach (ParseNode tNode in tItem.Value)
             {
                HashSet<Terminal> tLookaheadTerminals = new HashSet<Terminal>();
                tNode.LookaheadTerminals(tItem.Key, tLookaheadTerminals); // get lookahead
-               
+
+               Boolean tIsDefaultRoute = false;
+
                // Look to see if there should be a default route.
                // If the node parses the terminal, it should be selected if no other lookahead routes are available.
                // eg for our xpath case: attribute::,attribute() and attribute (as an element name, nametest). If none
                // of the lookaheads match, ie :: and () then we should select the nametest route. In case of multiple default
                // routes, we will greedily pick the one that parses the most.
                if (tNode.ParsesTerminal(tItem.Key)) // todo: cache result?
-                  tLookaheadTerminals.Add(new DefaultTerminal());
+                  tIsDefaultRoute = true;
+                  //tLookaheadTerminals.Add(new DefaultTerminal());
                
-               if (tLookaheadTerminals.Count > 0)
+               if (tIsDefaultRoute || tLookaheadTerminals.Count > 0)
                {
-                  List<Pair<HashSet<Terminal>, ParseNode>> tList;
+                  List<LookaheadInfo> tList;
                   if (!mLookaheadMap.TryGetValue((GeneralTerminal)tItem.Key, out tList))
                   {
-                     tList = new List<Pair<HashSet<Terminal>, ParseNode>>();
+                     tList = new List<LookaheadInfo>();
                      mLookaheadMap.Add((GeneralTerminal)tItem.Key, tList);
                   }
 
-                  tList.Add(new Pair<HashSet<Terminal>, ParseNode>() { Left = tLookaheadTerminals, Right = tNode });
+                  tList.Add(new LookaheadInfo() { Terminals = tLookaheadTerminals, Node = tNode, IsDefaultRoute = tIsDefaultRoute });
                   //tLookaheadMap.Add(tItem.Key, new Pair<List<Terminal>, ParseNode>() { Left = tLookaheadTerminals, Right = tNode });
                }
                else
@@ -1506,8 +1509,8 @@ namespace SimpleCC
                foreach (var tOtherValue in tEntry.Value.Skip(i))
                {
                   // For each terminal of the current node, check against all other terminals of the other nodes.
-                  foreach (GeneralTerminal tTerminal in tEnumerator.Current.Left.Where(t => !(t is DefaultTerminal)))
-                     foreach (GeneralTerminal tOtherTerminal in tOtherValue.Left.Where(t => !(t is DefaultTerminal)))
+                  foreach (GeneralTerminal tTerminal in tEnumerator.Current.Terminals)
+                     foreach (GeneralTerminal tOtherTerminal in tOtherValue.Terminals)
                         if (tTerminal.SimpleRegex.Intersects(tOtherTerminal.SimpleRegex))
                            throw new ParseException("Inconclusive lookahead, terminals {0} and {1} share possible common input.", tTerminal, tOtherTerminal);
                }
@@ -1522,10 +1525,11 @@ namespace SimpleCC
             //   }
 
 
-            foreach (var tPair in tEntry.Value)
+            foreach (var tInfo in tEntry.Value)
             {
                // Check if the list contains a default entry.
-               if (tPair.Left.Any(t => t is DefaultTerminal))
+               //if (tInfo.Terminals.Any(t => t is DefaultTerminal))
+               if (tInfo.IsDefaultRoute)
                {
                   if (tDefaultTerminals.Count > 0) // see if we have a conflict
                   {
@@ -1539,14 +1543,14 @@ namespace SimpleCC
 
                // NOTE: all regexes are already normalized, the result is also normalized
                SimpleRegex tLeftRegex = SimpleRegex.Sequence(tEntry.Key.SimpleRegex,
-                  SimpleRegex.Choice(from t in tPair.Left where !(t is DefaultTerminal) select ((GeneralTerminal)t).SimpleRegex));
+                  SimpleRegex.Choice(from t in tInfo.Terminals select ((GeneralTerminal)t).SimpleRegex));
 
                foreach (var tOtherEntry in mLookaheadMap.Skip(tCount)) // start past entry
                {
                   foreach (var tOtherPair in tOtherEntry.Value)
                   {
                      SimpleRegex tRightRegex = SimpleRegex.Sequence(tOtherEntry.Key.SimpleRegex,
-                        SimpleRegex.Choice(from t in tOtherPair.Left where !(t is DefaultTerminal) select ((GeneralTerminal)t).SimpleRegex));
+                        SimpleRegex.Choice(from t in tOtherPair.Terminals select ((GeneralTerminal)t).SimpleRegex));
 
                      if (tLeftRegex.Intersects(tRightRegex))
                         throw new ParseException("inconclusive lookahead");
@@ -1582,8 +1586,9 @@ namespace SimpleCC
       {
          foreach(var tPair in mLookaheadMap)
             if (tPair.Key.SemanticEquals((GeneralTerminal)pTerminal))
-               foreach(var tItem in tPair.Value)
-                  if (tItem.Left.Any(t => t is DefaultTerminal))
+               foreach(var tInfo in tPair.Value)
+                  if (tInfo.IsDefaultRoute)
+                  //if (tInfo.Terminals.Any(t => t is DefaultTerminal))
                      return true;
 
          return false;
@@ -1601,7 +1606,7 @@ namespace SimpleCC
          ParseNode tDefaultNode = null; // chosen if no lookahead matches.
 
          //foreach (GeneralTerminal tTerminal in mLookaheadMap.Keys)
-         foreach (KeyValuePair<GeneralTerminal, List<Pair<HashSet<Terminal>, ParseNode>>> tTerminalListPair in mLookaheadMap)
+         foreach (KeyValuePair<GeneralTerminal, List<LookaheadInfo>> tTerminalListPair in mLookaheadMap)
          {
             //if (tTerminal.CanAdvance(c))
             //{
@@ -1609,25 +1614,27 @@ namespace SimpleCC
             if (tTerminalListPair.Key.OptAdvance(c))
             {
                // Choose a lookahead terminal, and then proceed.
-               foreach (var tPair in tTerminalListPair.Value)
-                  foreach (GeneralTerminal tLookaheadTerminal in tPair.Left)
-                     if (tLookaheadTerminal is DefaultTerminal)
+               foreach (var tInfo in tTerminalListPair.Value)
+               {
+                  // Try to parse.
+                  foreach (GeneralTerminal tLookaheadTerminal in tInfo.Terminals)
+                     if (tLookaheadTerminal.CanAdvance(c))
                      {
-                        if (c.Position > tDefaultPosition) // greedily found next default route -> todo setting
-                        {
-                           tDefaultNode = tPair.Right;
-                           tDefaultPosition = c.Position;
-                        }
-                     }
-                     else if (tLookaheadTerminal.CanAdvance(c))
-                     {
-                        // don't need to advance: we got a hit
-                        //tLookaheadTerminal.AdvanceTerminal(c);
-
                         // NOW we're in business.
                         c.Position = tPosition; // reset for actual parsing (todo: this is a shame)
-                        return tPair.Right.Parse(c); // gtfo
+                        return tInfo.Node.Parse(c); // gtfo
                      }
+
+                  // Else, if we accept a default route, record how far we got for greedy parsing.
+                  if (tInfo.IsDefaultRoute)
+                  {
+                     if (c.Position > tDefaultPosition) // greedily found next default route -> todo setting
+                     {
+                        tDefaultNode = tInfo.Node;
+                        tDefaultPosition = c.Position;
+                     }
+                  }
+               }
 
                // Failure, reset position, try next terminal.
                c.Position = tPosition;
@@ -1654,22 +1661,21 @@ namespace SimpleCC
       }
    }
 
-   // todo: use this class, then rename in order to refactor.
-   // remove generics
-   // add support for default routes
-   public class Pair2<U, V>
+   public class LookaheadInfo
    {
-      public U Left; public V Right;
+      public HashSet<Terminal> Terminals; 
+      public ParseNode Node;
+      public Boolean IsDefaultRoute = false;
 
       public override bool Equals(object obj)
       {
-         Pair<U, V> tOther = obj as Pair<U, V>;
-         return tOther != null && Left.Equals(tOther.Left) && Right.Equals(tOther.Right);
+         LookaheadInfo tOther = obj as LookaheadInfo;
+         return tOther != null && Terminals.Equals(tOther.Terminals) && Node.Equals(tOther.Node) && IsDefaultRoute == tOther.IsDefaultRoute;
       }
 
       public override int GetHashCode()
       {
-         return Left.GetHashCode() ^ Right.GetHashCode();
+         return Terminals.GetHashCode() ^ Node.GetHashCode() ^ IsDefaultRoute.GetHashCode();
       }
    }
 
@@ -1810,49 +1816,6 @@ namespace SimpleCC
       public abstract Terminal Clone();
 
       public abstract Boolean ConflictsWith(Terminal pOther);
-   }
-
-   /// <summary>
-   /// A "marker" that marks the route to follow if no other lookahead matches.
-   /// todo: this should maybe not be a general terminal? But requires changes in code. Look into doing so. DO THIS IF IT'S WORKING
-   /// > this is only a marker, so we should be able to completely code around this
-   /// </summary>
-   public class DefaultTerminal : GeneralTerminal
-   {
-      public override bool CanAdvance(ParseContext ctx)
-      {
-         return false;
-      }
-
-      public override Terminal Clone()
-      {
-         return new DefaultTerminal();
-      }
-
-      public override string AdvanceTerminal(ParseContext ctx)
-      {
-         throw new InvalidOperationException("default terminal cannot advance");
-      }
-
-      public override bool OptAdvance(ParseContext ctx)
-      {
-         throw new NotImplementedException();
-      }
-
-      public override bool ConflictsWith(Terminal pOther)
-      {
-         return true;
-      }
-
-      public override string ToString()
-      {
-         return "DEFAULT";
-      }
-
-      public override int GetHashCode()
-      {
-         return ToString().GetHashCode();
-      }
    }
 
    public class GeneralTerminal : Terminal
