@@ -16,7 +16,6 @@ namespace SimpleRegexIntersectorTest
          try
          {
             a();
-            Assert.Fail("Assertion failure: expected exception of type " + typeof(T));
          }
          catch (AssertFailedException)
          {
@@ -24,8 +23,10 @@ namespace SimpleRegexIntersectorTest
          }
          catch (T)
          {
-            // ok
+            return; // OK
          }
+
+         Assert.Fail("Assertion failure: expected exception of type " + typeof(T));
       }
 
       [TestMethod]
@@ -69,7 +70,58 @@ namespace SimpleRegexIntersectorTest
          SimpleRegex.Parse("[^\a]");
          SimpleRegex foo = SimpleRegex.Parse("[^\"]");
          SimpleRegex.Parse("'[^']*'");
-        SimpleRegex.Parse("'([^']|\\\\')*'");
+         SimpleRegex.Parse("'([^']|\\\\')*'");
+
+         // Add some whitespace.
+         SimpleRegex.Parse(" a ");
+         SimpleRegex.Parse(" a |  b  ");
+         SimpleRegex.Parse(" a  b");
+         SimpleRegex.Parse("a *");
+         SimpleRegex.Parse("a  ?");
+         SimpleRegex.Parse("a  +");
+         SimpleRegex.Parse("a | (  ab )  ");
+         SimpleRegex.Parse(" \a");
+         SimpleRegex.Parse(" [a-b] ");
+         SimpleRegex.Parse(" [\a-\b] ");
+         SimpleRegex.Parse(" [^a-b] ");
+         SimpleRegex.Parse(" [ab] ");
+         SimpleRegex.Parse(" [a] ");
+         SimpleRegex.Parse(" [a b] ");
+         SimpleRegex.Parse(" [^a] ");
+         SimpleRegex.Parse(" [^a\b] ");
+         SimpleRegex.Parse(" [^\a] ");
+         SimpleRegex.Parse(" [^\"] ");
+         SimpleRegex.Parse(" '[^'] *' ");
+         SimpleRegex.Parse(" '([^'] | \\\\') *' ");
+      }
+
+      [TestMethod]
+      public void TestWhitespaceIgnored()
+      {
+         AssertThrows(() => SimpleRegex.Parse("              ")); // equivalent to an empty regex
+         Assert.AreEqual(SimpleRegex.Letter('a'), SimpleRegex.Parse("   a  "));
+         Assert.AreEqual(SimpleRegex.Star(SimpleRegex.Letter('a')), SimpleRegex.Parse(" a  * "));
+         Assert.AreEqual(SimpleRegex.Choice(SimpleRegex.Letter('a'), SimpleRegex.Letter('b')), SimpleRegex.Parse(" a |   b "));
+         
+         // Test whitespace remains in sets:
+         Assert.AreEqual(SimpleRegex.Range(' ', 'z'), SimpleRegex.Parse("  [ -z] "));
+         Assert.AreEqual(SimpleRegex.Choice(from c in new[] { 'a', ' ', 'b' } select SimpleRegex.Letter(c)), SimpleRegex.Parse(" [a b] "));
+
+         SimpleRegex.Parse("[ ]"); // ok
+      }
+
+      [TestMethod]
+      public void TestWhitespaceSignificant()
+      {
+         Assert.AreEqual(SimpleRegex.Letter(' '), SimpleRegex.Parse(" ", 0));
+         Assert.AreEqual(SimpleRegex.Sequence(SimpleRegex.Letter('a'), SimpleRegex.Letter(' ')), SimpleRegex.Parse("a ", 0));
+         //Assert.AreEqual(SimpleRegex.Sequence(SimpleRegex.Letter('a'), SimpleRegex.Letter(' ')
+
+         // Invalid range.
+         AssertThrows(() => SimpleRegex.Parse("[a- ]", 0));
+          
+         // Ok
+         SimpleRegex.Parse("[ ]", 0);
       }
 
       [TestMethod]

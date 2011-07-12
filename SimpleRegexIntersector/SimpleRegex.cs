@@ -191,7 +191,7 @@ namespace SimpleRegexIntersector
          if (rangeSet != null)
             foreach (RangeRegex tRange in rangeSet)
             {
-               SimpleRegex.AddRangeDisjoint(tRange.Negated ? (RangeRegex)tRange.Negate() : tRange, tDisjointSet); // todo: put this method somewhere else?
+               SimpleRegex.AddRangeDisjoint(tRange.Negated ? tRange.Invert() : tRange, tDisjointSet); // todo: put this method somewhere else?
             }
          return tDisjointSet;
       }
@@ -229,17 +229,27 @@ namespace SimpleRegexIntersector
          // Process ranges by removing any characters used elsewhere.
          // [a-d] -> [a-b] | c | d if c and d used elsewhere, with negations appropriately applied.
          // Also, remove ranges of length 1.
+
+         // todo: the negation here is incorrect as it can contain empty and it should not!
          tResult = tResult.Apply(r =>
          {
             if (r is RangeRegex)
             {
                RangeRegex tRange = (RangeRegex)r;
                var tSplitRanges = SimpleRegex.SplitOnLetters(tRange, mAlphabet);
-               SimpleRegex tRewrite = SimpleRegex.Choice(from tSplitRange in tSplitRanges
+               SimpleRegex tRewrite;
+               if (tRange.Negated)
+                  tRewrite = SimpleRegex.And(from tSplitRange in tSplitRanges
+                                             select tSplitRange.Length == 1 ?
+                                                (SimpleRegex)new NegatedLetterRegex { Letter = tSplitRange.Low }
+                                                : tSplitRange.Invert());
+               else
+                  tRewrite = SimpleRegex.Choice(from tSplitRange in tSplitRanges
                                              select tSplitRange.Length == 1 ?
                                                 (SimpleRegex)Letter(tSplitRange.Low) : tSplitRange);
 
-               return tRange.Negated ? tRewrite.Negate() : tRewrite;
+               //return tRange.Negated ? tRewrite.Negate() : tRewrite;
+               return tRewrite;
             }
             return r;
          });
@@ -269,32 +279,53 @@ namespace SimpleRegexIntersector
          // Create a map from not-char to replacement.
 
          // Before we get out, rewrite ., matching everything.
-         tResult = tResult.Apply(r =>
+         tResult = RewriteComplete(tResult);
+
+         // Rewrite negated letters.
+         tResult = RewriteNegation(tResult);
+
+         return tResult;
+      }
+
+      protected SimpleRegex RewriteComplete(SimpleRegex regex)
+      {
+         return regex.Apply(r =>
          {
             if (r is CompleteRegex)
                return SimpleRegex.Choice(from c in mAlphabet select Letter(c), Letter(mMagicMarker));
             return r;
          });
+      }
 
-         // Rewrite negated letters.
-         tResult = tResult.Apply(r =>
+      protected SimpleRegex RewriteNegation(SimpleRegex regex)
+      {
+         return regex.Apply(r =>
          {
             if (r is NegatedLetterRegex)
                return SimpleRegex.Choice(from c in mAlphabet where c != ((NegatedLetterRegex)r).Letter select Letter(c), Letter(mMagicMarker));
             return r;
          });
-
-         return tResult;
       }
 
 
 
-      // We'll only provide methods here that do *not* need additional rewriting.
+      // We'll only provide methods here that do *not* need additional rewriting (todo: provided all are normalized).
       public static ChoiceRegex Choice(SimpleRegex left, SimpleRegex right) { return new ChoiceRegex() { Left = left, Right = right }; }
       public static KleeneRegex Star(SimpleRegex op) { return new KleeneRegex() { Operand = op }; }
       public static SeqRegex Sequence(SimpleRegex left, SimpleRegex right) { return new SeqRegex() { Left = left, Right = right }; }
      
       public static LetterRegex Letter(Char c) { return new LetterRegex() { Letter = c }; }
+
+      // todo: look at instance vs static here.. bit of a mess
+      // the one below requires rewriting
+      // does NOT clone
+      public SimpleRegex AndNot(SimpleRegex arg, SimpleRegex op) // todo: should ensure both have been normalized....
+      {
+         // Logic: left followed by ~op .*
+         //return (new AndRegex() { Left = arg, Right = Sequence(RewriteNegation(op.Negate()), Star(RewriteComplete(SimpleRegex.Complete))) });
+         return new AndRegex { Left = arg, Right = RewriteNegation(op.Negate()) };
+      }
+
 
       // These would, do not support for now.
 
@@ -309,6 +340,165 @@ namespace SimpleRegexIntersector
    // ^: match start of input: requires no work, just ensure with parsing that ^ can not occur as char
    // $: match end of input: - " -
 
+   public interface IRegexVisitor<out T>
+   {
+      T Visit(ChoiceRegex choice);
+      T Visit(SeqRegex sequence);
+      T Visit(LetterRegex letter);
+      T Visit(NegatedLetterRegex negLet);
+      T Visit(AndRegex and);
+      T Visit(EmptyRegex empty);
+      T Visit(ZeroRegex zero);
+      T Visit(VarRegex var);
+      T Visit(CompleteRegex complete);
+      T Visit(KleeneRegex kleene);
+      T Visit(RangeRegex range);
+   }
+
+   // Visits the complete tree of regex, replacing nodes with the visitor value.
+   internal class SimpleVisitor : IRegexVisitor<SimpleRegex>
+   {
+      public virtual SimpleRegex Visit(ChoiceRegex choice)
+      {
+         choice.Left = choice.Left.Accept(this);
+         choice.Right = choice.Right.Accept(this);
+         return choice;
+      }
+
+      public virtual SimpleRegex Visit(SeqRegex sequence)
+      {
+         sequence.Left = sequence.Left.Accept(this);
+         sequence.Right = sequence.Right.Accept(this);
+         return sequence;
+      }
+
+      public virtual SimpleRegex Visit(LetterRegex letter)
+      {
+         return letter;
+      }
+
+      public virtual SimpleRegex Visit(RangeRegex range)
+      {
+         return range;
+      }
+
+      public virtual SimpleRegex Visit(NegatedLetterRegex negLet)
+      {
+         return negLet;
+      }
+
+      public virtual SimpleRegex Visit(AndRegex and)
+      {
+         and.Left = and.Left.Accept(this);
+         and.Right = and.Right.Accept(this);
+         return and;
+      }
+
+      public virtual SimpleRegex Visit(EmptyRegex empty)
+      {
+         return empty;
+      }
+
+      public virtual SimpleRegex Visit(ZeroRegex zero)
+      {
+         return zero;
+      }
+
+      public virtual SimpleRegex Visit(VarRegex var)
+      {
+         return var;
+      }
+
+      public virtual SimpleRegex Visit(CompleteRegex complete)
+      {
+         return complete;
+      }
+
+      public virtual SimpleRegex Visit(KleeneRegex kleene)
+      {
+         kleene.Operand = kleene.Operand.Accept(this);
+         return kleene;
+      }
+   }
+
+   internal class SimplifyingVisitor : SimpleVisitor
+   {
+      public override SimpleRegex Visit(ChoiceRegex choice)
+      {
+         choice = (ChoiceRegex)base.Visit(choice);
+
+         if (choice.Left.IsZero()) // 0 | A = A
+            return choice.Right;
+
+         if (choice.Right.IsZero()) // A | 0 = A
+            return choice.Left;
+
+         if (choice.Left.Equals(choice.Right))
+            return choice.Left;
+
+         return choice;
+      }
+
+      public override SimpleRegex Visit(SeqRegex sequence)
+      {
+         sequence = (SeqRegex)base.Visit(sequence);
+
+         if (sequence.Left.IsZero() || sequence.Right.IsZero()) // 0 A = 0 and A 0 = 0
+            return SimpleRegex.Zero;
+
+         // empty A = A
+         if (sequence.Left == SimpleRegex.Empty)
+            return sequence.Right;
+
+         // A empty = A
+         if (sequence.Right == SimpleRegex.Empty)
+            return sequence.Left;
+
+         return sequence;
+      }
+
+      public override SimpleRegex Visit(AndRegex and)
+      {
+         and = (AndRegex)base.Visit(and);
+
+         // A & 0 = 0
+         if (and.Left.IsZero())
+            return SimpleRegex.Zero;
+
+         // 0 & A = 0
+         if (and.Right.IsZero())
+            return SimpleRegex.Zero;
+
+         // empty & A = empty
+         if (and.Left == EmptyRegex.Instance)
+            return EmptyRegex.Instance;
+
+         if (and.Right == EmptyRegex.Instance)
+            return EmptyRegex.Instance;
+
+         if (and.Left.Equals(and.Right))
+            return and.Left;
+
+         return and;
+         //return new AndRegex { Left = tLeft, Right = tRight }; // enough for now
+      }
+
+      public override SimpleRegex Visit(KleeneRegex kleene)
+      {
+         kleene = (KleeneRegex)base.Visit(kleene);
+
+         // 0* = empty
+         if (kleene.Operand == SimpleRegex.Zero) 
+            return SimpleRegex.Empty;
+
+         // empty* = empty
+         if (kleene.Operand == SimpleRegex.Empty)
+            return SimpleRegex.Empty;
+
+         return kleene;
+      }
+   }
+
    /// <summary>
    /// Represents a .NET regular expression, but then a more "simple" one, so not all syntax supported and it doesn't perform
    /// any matching. It provides functionality such as:
@@ -322,15 +512,15 @@ namespace SimpleRegexIntersector
       internal static readonly Char[] EmptyCharArray = new Char[] { };
 
       ///<summary>Matches the empty string.</summary> 
-      internal static readonly SimpleRegex Empty = new EmptyRegex();
+      internal static readonly SimpleRegex Empty = EmptyRegex.Instance;
 
       ///<summary>Matches nothing.</summary>
-      internal static readonly SimpleRegex Zero = new ZeroRegex();
+      internal static readonly SimpleRegex Zero = ZeroRegex.Instance; // new ZeroRegex();
 
       /// <summary>
       /// Matches everything (.).
       /// </summary>
-      internal static readonly SimpleRegex Complete = new CompleteRegex();
+      internal static readonly SimpleRegex Complete = CompleteRegex.Instance; // new CompleteRegex();
 
       /// <summary>
       /// Returns, for regex f, the set { p | (x, p) in linear forms of f }.
@@ -354,6 +544,20 @@ namespace SimpleRegexIntersector
       /// </summary>
       /// <returns></returns>
       internal abstract SimpleRegex Negate();
+
+      public abstract T Accept<T>(IRegexVisitor<T> visitor);
+
+
+      /// <summary>
+      /// Returns a new regex that is simplified. For example zero | A = A etc.
+      /// Currently not used internally.
+      /// </summary>
+      /// <returns></returns>
+      // todo: should we simplify more "accross the board" in order to save work etc.?
+      public SimpleRegex Simplify()
+      {
+         return this.Accept(new SimplifyingVisitor());
+      }
 
       // Util for rewriting the tree. todo: should provide viistor instead?
       public abstract SimpleRegex Apply(Func<SimpleRegex, SimpleRegex> f);
@@ -449,6 +653,23 @@ namespace SimpleRegexIntersector
          return ToRegex((pList.Union(others).GetEnumerator()));
       }
 
+      public static SimpleRegex And(IEnumerable<SimpleRegex> pList)
+      {
+         return And(pList.GetEnumerator());
+      }
+
+      public static SimpleRegex And(IEnumerator<SimpleRegex> regexList)
+      {
+         if (!regexList.MoveNext())
+            return Zero;
+
+         SimpleRegex tLeft = regexList.Current;
+
+         SimpleRegex tRest = And(regexList);
+
+         return tRest == Zero ? tLeft : And(tLeft, tRest);
+      }
+
       /// <summary>
       /// If list is empty, returns Zero. Otherwise returns a choice of the list, finally terminated with Zero (!).
       /// Thus, this is always "terminated" with Zero.
@@ -478,6 +699,11 @@ namespace SimpleRegexIntersector
          // Second change to MS' code: compare with Zero as well:
          SimpleRegex tPrefixIntersection = this.GetCommonPrefix(new Dictionary<Pair, SimpleRegex>(), 0, other);
          return !(Empty.SemanticEquals(tPrefixIntersection) || Zero.SemanticEquals(tPrefixIntersection));
+      }
+
+      internal SimpleRegex Intersect(SimpleRegex other)
+      {
+         return this.Intersect(new Dictionary<Pair, SimpleRegex>(), 0, other);
       }
 
       internal SimpleRegex Intersect(Dictionary<Pair, SimpleRegex> env, Int32 x, SimpleRegex r2)
@@ -777,6 +1003,7 @@ namespace SimpleRegexIntersector
                                         select tSplitRange.Length == 1 ?
                                            (SimpleRegex)Letter(tSplitRange.Low) : tSplitRange);
 
+               // TODO: thdis is no longer correct, see builder
                return tRange.Negated ? tRewrite.Negate() : tRewrite;
             }
             return r;
@@ -816,10 +1043,12 @@ namespace SimpleRegexIntersector
          // 4. Rewrite regex tree with all ranges, rewriting with markers.
          tResult = tResult.Apply(r =>
          {
+            // todo: no longer correct, see builder
             if (r is RangeRegex)
                return Choice(from recon in Reconstruct((RangeRegex)r, tDisjointRanges) select
                                  ((RangeRegex)r).Negated ? 
-                                    (SimpleRegex)NegatedLetter(tRangeMarkerMap[recon]) :
+                                    //(SimpleRegex)NegatedLetter(tRangeMarkerMap[recon]) :
+                                    (SimpleRegex)Letter(tRangeMarkerMap[recon]).Negate() :
                                     (SimpleRegex)Letter(tRangeMarkerMap[recon]));
 
             return r;
@@ -865,7 +1094,26 @@ namespace SimpleRegexIntersector
          return tResult;
       }
 
+      public enum RegexOptions
+      {
+         None = 0,
+         IgnorePatternWhitespace = 1
+      }
+
+      internal abstract StringBuilder ToString(StringBuilder builder, Boolean asUnit);
+
+      public override string ToString()
+      {
+         return ToString(new StringBuilder(), false).ToString();
+      }
+
       #region Parser
+
+      public static SimpleRegex Parse(String expression)
+      {
+         // todo: this should be ignore by default!
+         return Parse(expression, RegexOptions.IgnorePatternWhitespace);
+      }
 
       // todo: once my parsergenerator is working fully, use an older build to do this, ie self reference (!)
       // this may be possible if we don't need lookahead...
@@ -897,13 +1145,20 @@ namespace SimpleRegexIntersector
        * A? -> empty | A
        * 
        *   */
-      public static SimpleRegex Parse(String regexExpr)
+      public static SimpleRegex Parse(String regexExpr, RegexOptions options)
       {
          Int32 tPos = 0;
          try
          {
-            SimpleRegex tResult = Parse_Regex(regexExpr, ref tPos);
-            if (tPos != regexExpr.Length)
+            var tContext = new RegexParseContext()
+            {
+               Position = 0, Expression = regexExpr, Options = options
+            }; // (regexExpr, ref tPos);
+
+
+            SimpleRegex tResult = Parse_Regex(tContext);
+
+            if (tContext.Position != tContext.Expression.Length)
                throw new Exception("expected end of input");
 
             return tResult;
@@ -914,48 +1169,90 @@ namespace SimpleRegexIntersector
          }
       }
 
-      protected static SimpleRegex Parse_Regex(String expr, ref Int32 pos)
+      public class RegexParseContext
       {
-         SimpleRegex left = Parse_SimpleRegex(expr, ref pos);
-         if (pos < expr.Length && expr[pos] == '|')
+         public Int32 Position;
+         public String Expression;
+         public RegexOptions Options;
+
+         public Char CurrentChar { get { return Expression[Position]; } }
+         public Boolean HasMore { get { return Position < Expression.Length; } }
+
+         public void MoveRight()
          {
-            pos += 1;
-            return Choice(left, Parse_Regex(expr, ref pos));
+            Position += 1;
+         }
+      }
+
+      protected static void SkipWhitespace(RegexParseContext ctx) //(String expr, RegexOptions options, ref Int32 pos)
+      {
+         if ((ctx.Options & RegexOptions.IgnorePatternWhitespace) > 0)
+         {
+            for (; ctx.Position < ctx.Expression.Length && IsWhitespace(ctx.Expression[ctx.Position]); ctx.Position++)
+            { }
+         }
+      }
+
+      // todo: this must be done properly, we must match .net exactly
+      // todo: we must think about \n special casing in general
+      protected static Boolean IsWhitespace(Char c)
+      {
+         return Char.IsWhiteSpace(c);
+      }
+
+      protected static SimpleRegex Parse_Regex(RegexParseContext ctx) //(String expr, ref Int32 pos)
+      {
+         SimpleRegex left = Parse_SimpleRegex(ctx); //, ref pos);
+         
+         SkipWhitespace(ctx);
+         
+         if (ctx.HasMore && ctx.CurrentChar == '|')
+         {
+            ctx.Position += 1;
+
+            return Choice(left, Parse_Regex(ctx)); //(expr, ref pos));
          }
          else
             return left;
       }
 
-      protected static SimpleRegex Parse_SimpleRegex(String expr, ref Int32 pos)
+      protected static SimpleRegex Parse_SimpleRegex(RegexParseContext ctx) // (String expr, ref Int32 pos)
       {
-         SimpleRegex left = Parse_BasicRegex(expr, ref pos);
-         if (pos < expr.Length && expr[pos] != ')' && expr[pos] != '|') // lookahead for ) and |
-            return Sequence(left, Parse_SimpleRegex(expr, ref pos));
+         SimpleRegex left = Parse_BasicRegex(ctx); //(expr, ref pos);
+
+         SkipWhitespace(ctx);
+
+         if (ctx.HasMore && ctx.CurrentChar != ')' && ctx.CurrentChar != '|') // lookahead for ) and |
+            return Sequence(left, Parse_SimpleRegex(ctx)); //(expr, ref pos));
          else
             return left;
       }
 
-      protected static SimpleRegex Parse_BasicRegex(String expr, ref Int32 pos)
+      protected static SimpleRegex Parse_BasicRegex(RegexParseContext ctx) //(String expr, ref Int32 pos)
       {
-         SimpleRegex tNotRegex = Parse_NotRegex(expr, ref pos);
-         if (pos < expr.Length)
+         SimpleRegex tNotRegex = Parse_NotRegex(ctx); //(expr, ref pos);
+         //if (pos < expr.Length)
+
+         SkipWhitespace(ctx);
+
+         if (ctx.HasMore)
          {
-            if (expr[pos] == '+')
+            if (ctx.CurrentChar == '+')
             {
-               pos += 1;
+               ctx.Position += 1;
                return Sequence(tNotRegex, Star(tNotRegex));
             }
-            else if (expr[pos] == '?')
+            else if (ctx.CurrentChar == '?')
             {
-               pos += 1;
+               ctx.Position += 1;
                return Choice(Empty, tNotRegex);
             }
-            else if (expr[pos] == '*')
+            else if (ctx.CurrentChar == '*')
             {
-               pos += 1;
+               ctx.Position += 1;
                return Star(tNotRegex);
             }
-            else if (expr[pos] == '{')
+            else if (ctx.CurrentChar == '{')
             {
                throw new NotSupportedException("todo: numbered ranges");
                //pos += 1;
@@ -969,41 +1266,51 @@ namespace SimpleRegexIntersector
          return tNotRegex;
       }
 
-      protected static SimpleRegex Parse_NotRegex(String expr, ref Int32 pos)
+      protected static SimpleRegex Parse_NotRegex(RegexParseContext ctx) //(String expr, ref Int32 pos)
       {
          Boolean tNegate = false;
 
-         if (expr[pos] == '~')
+         SkipWhitespace(ctx);
+
+         if (ctx.CurrentChar == '~')
          {
             tNegate = true;
-            pos += 1;
+            ctx.Position += 1;
          }
 
-         SimpleRegex tRegex = Parse_ElemRegex(expr, ref pos);
+         SimpleRegex tRegex = Parse_ElemRegex(ctx); //(expr, ref pos);
 
          return tNegate ? tRegex.Negate() : tRegex;
       }
 
-      protected static SimpleRegex Parse_ElemRegex(String expr, ref Int32 pos)
+      protected static SimpleRegex Parse_ElemRegex(RegexParseContext ctx) //(String expr, ref Int32 pos)
       {
-         if (expr[pos] == '(')
+         SkipWhitespace(ctx);
+
+         if (ctx.CurrentChar == '(')
          {
-            pos += 1;
-            SimpleRegex tResult = Parse_Regex(expr, ref pos);
-            pos += 1; // skip ')' (check?)
+            ctx.Position += 1;
+            
+            SimpleRegex tResult = Parse_Regex(ctx); //(expr, ref pos);
+            
+            SkipWhitespace(ctx);
+            if (ctx.CurrentChar != ')')
+               throw new Exception("expected ')' at position " + ctx.Position);
+
+            ctx.Position += 1;
             return tResult;
          }
-         else if (expr[pos] == '.')
+         else if (ctx.CurrentChar == '.')
          {
-            pos += 1;
+            ctx.Position += 1;
             return Complete;
          }
-         else if (expr[pos] == '[')
-            return Parse_Set(expr, ref pos);
+         else if (ctx.CurrentChar == '[')
+            return Parse_Set(ctx); //expr, ref pos);
          else
          {
             // no escaping, for now.
-            return Letter(ReadLetter(expr, ref pos));
+            return Letter(ReadLetter(ctx)); //expr, ref pos));
          }
       }
 
@@ -1016,19 +1323,30 @@ namespace SimpleRegexIntersector
       };
 
       // Support escaping.
-      protected static Char ReadLetter(String expr, ref Int32 pos)
+      protected static Char ReadLetter(RegexParseContext ctx) //String expr, ref Int32 pos)
       {
-         if (expr[pos] == '\\')
+         Char tResult;
+
+         if (ctx.CurrentChar == '\\')
          {
-            pos += 1;
+            ctx.Position += 1;
 
-            if (!RegexChars.Contains(expr[pos]))
-               throw new Exception(String.Format("Invalid escaped character: '{0}'.", expr[pos]));
+            if (!RegexChars.Contains(ctx.CurrentChar))
+               throw new Exception(String.Format("Invalid escaped character: '{0}'.", ctx.CurrentChar));
 
-            return expr[pos++];
+            tResult = ctx.CurrentChar;
+            ctx.Position += 1;
+            //return expr[pos++];
          }
          else
-            return ValidateLetter(expr[pos++]);
+         {
+            tResult = ValidateLetter(ctx.CurrentChar);
+            ctx.Position += 1;
+            //return ValidateLetter(ctx.CurrentChar);
+            //return ValidateLetter(expr[pos++]);
+         }
+
+         return tResult;
       }
 
       protected static Char ValidateLetter(Char c)
@@ -1099,38 +1417,46 @@ namespace SimpleRegexIntersector
 
       // todo: support for (ignoring) non-capturing groups
 
-      protected static SimpleRegex Parse_Set(String expr, ref Int32 pos)
+      // Note: whitespace is NOT skipped within character classes/sets!
+      protected static SimpleRegex Parse_Set(RegexParseContext ctx) //(String expr, ref Int32 pos)
       {
-         pos += 1; // skip [
+         Debug.Assert(ctx.CurrentChar == '['); // we tested this previously
+         ctx.Position += 1; // skip [
+
          Boolean tNegate = false;
-         if (expr[pos] == '^')
+         if (ctx.CurrentChar == '^')
          {
             tNegate = true;
-            pos += 1;
+            ctx.Position += 1;
          }
          SimpleRegex tResult;
          List<Char> tCharList = new List<char>();
-         tCharList.Add(ReadLetter(expr, ref pos));
-         if (expr[pos] == '-')
+         tCharList.Add(ReadLetter(ctx)); //expr, ref pos));
+         if (ctx.CurrentChar == '-')
          {
-            pos += 1; // skip -
-            Char tHi = ReadLetter(expr, ref pos);
-            pos += 1; // skip ]
+            ctx.Position += 1; // skip -
+            Char tHi = ReadLetter(ctx); //(expr, ref pos);
+            ctx.Position += 1; // skip ]
             if (tHi < tCharList[0])
                throw new Exception(String.Format("Invalid range: {0} > {1}.", tCharList[0], tHi));
-            tResult = Range(tCharList[0], tHi);
+
+            tResult = tNegate ? Range(tCharList[0], tHi).Invert() : Range(tCharList[0], tHi);
          }
          else
          {
-            for (; expr[pos] != ']'; )
-               tCharList.Add(ReadLetter(expr, ref pos));
+            for (; ctx.CurrentChar != ']'; )
+               tCharList.Add(ReadLetter(ctx)); //(expr, ref pos));
             
-            pos += 1; // skip ']'
+            ctx.Position += 1; // skip ']'
 
-            tResult = Choice(from n in tCharList select Letter(n));
+            if (tNegate) // it's none of the letters here
+               tResult = And(from n in tCharList select new NegatedLetterRegex { Letter = n });
+            else // it's a choice of any
+               tResult = Choice(from n in tCharList select Letter(n));
          }
 
-         return tNegate ? tResult.Negate() : tResult;
+         return tResult; // note: Negate() is too strong!
+         //return tNegate ? tResult.Negate() : tResult;
       }
 
       #endregion
@@ -1190,9 +1516,10 @@ namespace SimpleRegexIntersector
          throw new NotImplementedException();
       }
 
-      public override string ToString()
+      internal override StringBuilder ToString(StringBuilder builder, Boolean asUnit)
       {
-         return "VAR(" + Value + ")";
+         // Ignore asUnit: this is always a unit, no parentheses needed.
+         return builder.Append("Var(").Append(Value).Append(')');
       }
 
       public override SimpleRegex Apply(Func<SimpleRegex, SimpleRegex> f)
@@ -1218,6 +1545,11 @@ namespace SimpleRegexIntersector
       internal override SimpleRegex Negate()
       {
          throw new InvalidOperationException();
+      }
+
+      public override T Accept<T>(IRegexVisitor<T> visitor)
+      {
+         return visitor.Visit(this);
       }
    }
 
@@ -1285,11 +1617,35 @@ namespace SimpleRegexIntersector
       }
 
       // returns p(left, c) INTERSECT p(right, c)
+      // Any regex A can be written A = S_c(c S(p_c(A))) where S_c = sum (choice) over c and p_c is partial derivative wrt c.
+      // Thus, given A and B, we can write A and B as such. For any input string s matching A and B (thus A & B), we must have that
+      // there is a regex in p(A) and p(B) that matches s. Thus we can write
+      // A & B = S_c(c S(p_c(A) & p_c(B))) where p_c(A) & p_c(B) = all in left set anded with all in right set. Clearly the same holds vice versa.
       internal override HashSet<SimpleRegex> PartialDeriv(char c)
       {
-         HashSet<SimpleRegex> tResult = Left.PartialDeriv(c);
-         tResult.IntersectWith(Right.PartialDeriv(c));
+         var tLeftPartial = Left.PartialDeriv(c);
+         var tRightPartial = Right.PartialDeriv(c);
+
+         HashSet<SimpleRegex> tResult = new HashSet<SimpleRegex>();
+         foreach(SimpleRegex tLeftRegex in tLeftPartial)
+            foreach (SimpleRegex tRightRegex in tRightPartial)
+            {
+               tResult.Add(And(tLeftRegex.Clone(), tRightRegex));
+               //tResult.Add(tLeftRegex.Intersect(tRightRegex));
+            }
+
          return tResult;
+
+         //HashSet<SimpleRegex> tResult = Left.PartialDeriv(c);
+         //tResult.IntersectWith(Right.PartialDeriv(c));
+
+         //// debug
+         //if (Left.PartialDeriv(c).Count == 1 && Right.PartialDeriv(c).Count == 1)
+         //{
+         //   SimpleRegex tIntersection = Left.PartialDeriv(c).First().Intersect(new Dictionary<Pair, SimpleRegex>(), 0, Right.PartialDeriv(c).First());
+         //}
+
+         //return tResult;
       }
 
       internal override char[] Sigma()
@@ -1297,9 +1653,48 @@ namespace SimpleRegexIntersector
          return Left.Sigma().Merge(Right.Sigma());
       }
 
-      public override string ToString()
+      internal override StringBuilder ToString(StringBuilder builder, Boolean asUnit)
       {
-         return Left.ToString() + " & " + Right.ToString();
+         if (asUnit)
+            builder.Append('(');
+
+         Left.ToString(builder, !(Left is AndRegex));
+
+         builder.Append(" & ");
+
+         Right.ToString(builder, !(Right is AndRegex));
+
+         if (asUnit)
+            builder.Append(')');
+
+         return builder;
+
+         //if (Left is ChoiceRegex)
+         //{
+         //   builder.Append('(');
+         //   Left.ToString(builder);
+         //   builder.Append(')');
+         //}
+         //else
+         //   Left.ToString(builder);
+
+         //builder.Append(" & ");
+
+         //if (Right is ChoiceRegex)
+         //{
+         //   builder.Append('(');
+         //   Right.ToString(builder);
+         //   builder.Append(')');
+         //}
+         //else
+         //   Right.ToString(builder);
+
+         //return builder;
+      }
+
+      public override T Accept<T>(IRegexVisitor<T> visitor)
+      {
+         return visitor.Visit(this);
       }
    }
 
@@ -1391,9 +1786,21 @@ namespace SimpleRegexIntersector
          return Left.IsEmpty() || Right.IsEmpty();
       }
 
-      public override string ToString()
+      internal override StringBuilder ToString(StringBuilder builder, Boolean asUnit)
       {
-         return "(" + Left.ToString() + " | " + Right.ToString() + ")";
+         if (asUnit)
+            builder.Append('(');
+
+         Left.ToString(builder, !(Left is ChoiceRegex));
+
+         builder.Append(" | ");
+
+         Right.ToString(builder, !(Right is ChoiceRegex));
+
+         if (asUnit)
+            builder.Append(')');
+
+         return builder;
       }
 
       public override bool Equals(object obj)
@@ -1420,8 +1827,16 @@ namespace SimpleRegexIntersector
       {
          return And(Left.Negate(), Right.Negate());
       }
+
+      public override T Accept<T>(IRegexVisitor<T> visitor)
+      {
+         return visitor.Visit(this);
+      }
    }
 
+   // todo: unify letterregx, negatedletter and rangeregx into a single UnitRegex:
+   // class UnitRegex, this has a negated property making NegatedLetter no longer needed
+   
    public class LetterRegex : SimpleRegex
    {
       public Char Letter;
@@ -1450,9 +1865,9 @@ namespace SimpleRegexIntersector
          return Pair(Empty, this);
       }
 
-      public override string ToString()
+      internal override StringBuilder ToString(StringBuilder builder, bool asUnit)
       {
-         return Letter.ToString();
+         return builder.Append(Letter);
       }
 
       internal override bool IsEmpty()
@@ -1489,15 +1904,23 @@ namespace SimpleRegexIntersector
       // returns not(a)
       // not(a) = n(a) | e
       // not(n(a) | e) = a & not(e) = a
+      // Update: let not(a) denote all characters not matching a, with ~a = not(a) | empty.
+      // We then have:
+      // ~a = empty | not(a) .* | a .+
       internal override SimpleRegex Negate()
       {
          //return Choice(Empty, new NegatedLetterRegex() { Letter = this.Letter });
-         return NegatedLetter(this.Letter);
+         return Choice(Empty, Choice(Sequence(new NegatedLetterRegex { Letter = this.Letter }, Star(Complete)), Sequence(this.Clone(), Sequence(Complete, Star(Complete)))));
+      }
+
+      public override T Accept<T>(IRegexVisitor<T> visitor)
+      {
+         return visitor.Visit(this);
       }
    }
 
-   // won't work because of unwieldy sigma
-   // instead we'll rewrite to "unique symbols"
+   // won't work because of unwieldy sigma -> instead we'll rewrite to "unique symbols"
+   // Represents all letters that are not the given letter. NOTE: this is different from ~a!
    public class NegatedLetterRegex : SimpleRegex
    {
       public Char Letter;
@@ -1557,9 +1980,9 @@ namespace SimpleRegexIntersector
          return new Char[] { Letter };
       }
 
-      public override string ToString()
+      internal override StringBuilder ToString(StringBuilder builder, bool asUnit)
       {
-         return "~" + Letter;
+         return builder.Append('~').Append(Letter);
       }
 
       public override SimpleRegex Apply(Func<SimpleRegex, SimpleRegex> f)
@@ -1568,9 +1991,18 @@ namespace SimpleRegexIntersector
       }
 
       // not(not(a)) -> a
+      // Update:
+      // Negated letter can be seen as any other letter, so it follows the same formula.
+      // Otherwise, we can see this by deriving ~not(a) = ~(b|c) = (empty|not(b).*|b.+)&(empty|not(c).*|c.+) = empty | a.* | b.+ | c.+ = empty | a.* | not(a).+
       internal override SimpleRegex Negate()
       {
-         return Letter(this.Letter);
+         //return Letter(this.Letter);
+         return Choice(Empty, Choice(Sequence(Letter(this.Letter), Star(Complete)), Sequence(this.Clone(), Sequence(Complete, Star(Complete)))));
+      }
+
+      public override T Accept<T>(IRegexVisitor<T> visitor)
+      {
+         return visitor.Visit(this);
       }
    }
 
@@ -1637,9 +2069,21 @@ namespace SimpleRegexIntersector
          return Left.IsZero() || Right.IsZero();
       }
 
-      public override string ToString()
+      internal override StringBuilder ToString(StringBuilder builder, bool asUnit)
       {
-         return "(" + Left.ToString() + " " + Right.ToString() + ")";
+         if (asUnit)
+            builder.Append('(');
+
+         Left.ToString(builder, !(Left is SeqRegex));
+
+         builder.Append(' ');
+
+         Right.ToString(builder, !(Right is SeqRegex));
+
+         if (asUnit)
+            builder.Append(')');
+
+         return builder;
       }
 
       internal override char[] Sigma()
@@ -1665,14 +2109,107 @@ namespace SimpleRegexIntersector
          return f(this);
       }
 
+      // todo: go over commenst and clean them up!!!
+
       // not (A.B) -> not(A) | A.not(B)
       // verify: not(not(A) | A.not(B)) = not(not(A)) & not(A.not(B))
       //    = not(not(A)) & (not(A) | A.not(not(B)))
-      //    = A & (not(A) | A.B)
+      //    = A & (not(A) | A.B)                                          (line added later:)  = (A & not(A)) | (A & (A.B)) = 0 | A.B = A.B
       //    = A & (A.B) = A.B
+      // Update: we must guard against the option not(A) matching AB (but not A).
+      // 1. Performs a rewrite to a sequence of the form a B (or a regex containing such sequences).
+      // 2. Negate a B using: ~(a B) = empty | not(a) .* | a ~B. todo: write down verification here
+      // todo: if a sequence is rewritten, it may again be rewritten once negation is called (recursively). E.g. it's
+      //   rewritten to A | B where A = a B. When A.Negate is called it is again rewritten, unnecessarily. So, we should do the rewrite
+      //   elsehere for efficiency.
+      // todo: cloning and negating, same thing? Belowe we use clone but not where negating.. check
       internal override SimpleRegex Negate()
       {
-         return Choice(Left.Negate(), Sequence(Left.Clone(), Right.Negate()));
+         SimpleRegex tSelfRewritten = this.Accept(new NegationRewriter());
+
+         if (tSelfRewritten is SeqRegex)
+         {
+            SeqRegex tSequence = (SeqRegex)tSelfRewritten;
+            SimpleRegex tLeftNegation;
+            if (tSequence.Left is LetterRegex)
+            {
+               tLeftNegation = new NegatedLetterRegex { Letter = ((LetterRegex)tSequence.Left).Letter };
+            }
+            else if (tSequence.Left is NegatedLetterRegex)
+            {
+               tLeftNegation = new LetterRegex { Letter = ((NegatedLetterRegex)tSequence.Left).Letter };
+            }
+            else if (tSequence.Left is RangeRegex)
+            {
+               tLeftNegation = tSequence.Left;
+               ((RangeRegex)tLeftNegation).Negated = !((RangeRegex)tLeftNegation).Negated;
+            }
+            else if (tSequence.Left == Complete)
+            {
+               tLeftNegation = Zero;
+            }
+            else
+               throw new InvalidOperationException("Bad rewrite");
+
+            return Choice(new[] { Empty, Sequence(tLeftNegation, Star(Complete)), Sequence(tSequence.Left, tSequence.Right.Negate()) });
+         }
+         else
+            return tSelfRewritten.Negate();
+
+         //return Choice(Left.Negate(), Sequence(Left.Clone(), Right.Negate()));
+         //return Choice(And(Left.Negate(), Sequence(Left.Clone(), Right.Negate())), Sequence(Left.Clone(), Right.Negate()));
+      }
+
+      public override T Accept<T>(IRegexVisitor<T> visitor)
+      {
+         return visitor.Visit(this);
+      }
+
+      internal class NegationRewriter : SimpleVisitor // when this works, change to simplifying?
+      {
+         // Rewrite sequences such that are all of the form a B for some letter a and a regex B.
+         public override SimpleRegex Visit(SeqRegex sequence)
+         {
+            // Rewrite the left part of this sequence.
+            SimpleRegex tLeft = sequence.Left.Accept(this);
+
+            if (tLeft == Empty)
+               return sequence.Right;
+
+            if (tLeft == Zero)
+               return Zero; // done
+
+            // (A | B) C = (A C) | (B C)
+            if (tLeft is ChoiceRegex)
+            {
+               ChoiceRegex tChoice = (ChoiceRegex)tLeft;
+               return Choice(Sequence(tChoice.Left, sequence.Right), Sequence(tChoice.Right, sequence.Right));
+            }
+
+            // (A & B) C = (A C) & (B C)
+            if (tLeft is AndRegex)
+            {
+               AndRegex tAnd = (AndRegex)tLeft;
+               return And(Sequence(tAnd.Left, sequence.Right), Sequence(tAnd.Right, sequence.Right));
+            }
+
+            // (A B) C = A (B C)
+            if (tLeft is SeqRegex)
+            {
+               SeqRegex tSequence = (SeqRegex)tLeft;
+               // Note: left has been rewritten, so tSequence.Left has been rewritten.
+               Debug.Assert(!(tSequence.Left is SeqRegex));
+               return Sequence(tSequence.Left, Sequence(tSequence.Right, sequence.Right));
+            }
+
+            if (tLeft is RangeRegex || tLeft is LetterRegex || tLeft is NegatedLetterRegex || tLeft is CompleteRegex)
+            {
+               sequence.Left = tLeft;
+               return sequence;
+            }
+
+            throw new NotSupportedException("Regex type not supported " + tLeft.GetType());
+         }
       }
    }
 
@@ -1728,9 +2265,9 @@ namespace SimpleRegexIntersector
          return false;
       }
 
-      public override string ToString()
+      internal override StringBuilder ToString(StringBuilder builder, bool asUnit)
       {
-         return "(" + Operand.ToString() + ")*";
+         return Operand.ToString(builder, asUnit).Append('*');
       }
 
       internal override char[] Sigma()
@@ -1762,10 +2299,23 @@ namespace SimpleRegexIntersector
       {
          return And(Empty.Negate(), Star(Operand.Negate()));
       }
+
+      public override T Accept<T>(IRegexVisitor<T> visitor)
+      {
+         return visitor.Visit(this);
+      }
    }
 
    public class EmptyRegex : SimpleRegex
    {
+      private static readonly EmptyRegex _sEmptyRegex = new EmptyRegex();
+
+      protected EmptyRegex() {}
+
+      static EmptyRegex() {}
+
+      public static EmptyRegex Instance { get { return _sEmptyRegex; } }
+
       internal override HashSet<SimpleRegex> PartialDeriv(char c)
       {
          return new HashSet<SimpleRegex>();
@@ -1797,9 +2347,9 @@ namespace SimpleRegexIntersector
          return false;
       }
 
-      public override string ToString()
+      internal override StringBuilder ToString(StringBuilder builder, bool asUnit)
       {
-         return "<>";
+         return builder.Append('ε');
       }
 
       internal override char[] Sigma()
@@ -1825,16 +2375,36 @@ namespace SimpleRegexIntersector
 
       // not (e) = a | b | ... | zero, all letters plus zero
       // so not(not(e)) = not(a) & not(b) ... & not(zero) = e
+      // Update
+      // not(e) = . .*
+      // Check: not(not(e)) = not(. .*) = not(.) | . not(.*) = e | . 0 = e
       internal override SimpleRegex Negate()
       {
-         //return Complete;  
-         return Choice(Complete, Zero);
+         //return Choice(Complete, Zero);
+         return Sequence(Complete, Star(Complete)); // todo: what about zero?
+      }
+
+      public override T Accept<T>(IRegexVisitor<T> visitor)
+      {
+         return visitor.Visit(this);
       }
    }
 
    // todo: matche everything (1 char at a time) ie = a | b | c ..., excluding empty.
    public class CompleteRegex : SimpleRegex 
    {
+      private static readonly CompleteRegex _sInstance = new CompleteRegex();
+
+      public static CompleteRegex Instance { get { return _sInstance; } }
+
+      protected CompleteRegex()
+      {
+      }
+
+      static CompleteRegex()
+      {
+      }
+
       public override SimpleRegex Apply(Func<SimpleRegex, SimpleRegex> f)
       {
          return f(this);
@@ -1880,7 +2450,7 @@ namespace SimpleRegexIntersector
       //               = (n(a) & n(b) ... n(z) ) | Empty = Zero | Empty = Empty
       internal override SimpleRegex Negate()
       {
-         return Empty;
+         return Empty; // todo: what about zero?
       }
 
       // As complete can be viewed a | b | c | ... | z, ie the whole "alphabet", we can 
@@ -1898,9 +2468,14 @@ namespace SimpleRegexIntersector
          return EmptyCharArray;
       }
 
-      public override string ToString()
+      internal override StringBuilder ToString(StringBuilder builder, bool asUnit)
       {
-         return ".";
+         return builder.Append('.');
+      }
+
+      public override T Accept<T>(IRegexVisitor<T> visitor)
+      {
+         return visitor.Visit(this);
       }
    }
 
@@ -1969,14 +2544,28 @@ namespace SimpleRegexIntersector
          return false;
       }
 
+      /// <summary>
+      /// Changes the range from a postive to negative range and vice versa. Eg [^a-z] -> [a-z]. 
+      /// Returns self.
+      /// </summary>
+      internal virtual RangeRegex Invert()
+      {
+         Negated = !Negated;
+         return this;
+      }
+
       // Can not negate, so rewrite must tackle ranges first, and replace with marker.
       internal override SimpleRegex Negate()
       {
-         //Negated = !Negated; // used in rewrite
-         //return this;
-         RangeRegex tResult = (RangeRegex)this.Clone();
-         tResult.Negated = !this.Negated;
-         return tResult;
+         RangeRegex tNegation = (RangeRegex)this.Clone();
+         tNegation.Negated = !this.Negated;
+         return Choice(Empty, Choice(Sequence(tNegation, Star(Complete)), Sequence(this.Clone(), Sequence(Complete, Star(Complete)))));
+      
+
+         // Old code:
+         //RangeRegex tResult = (RangeRegex)this.Clone();
+         //tResult.Negated = !this.Negated;
+         //return tResult;
       }
 
       // note: range regular expressions are intended to be rewritten, so this needs no implementation.
@@ -1991,14 +2580,32 @@ namespace SimpleRegexIntersector
          return new Char[] { Low, High };
       }
 
-      public override string ToString()
+      internal override StringBuilder ToString(StringBuilder builder, bool asUnit)
       {
-         return "[" + (Negated ? "^" : "") + Low + "-" + High + "]";
+         builder.Append('[');
+
+         if (Negated)
+            builder.Append('^');
+
+         return builder.Append(Low).Append('-').Append(High).Append(']');
+      }
+
+      public override T Accept<T>(IRegexVisitor<T> visitor)
+      {
+         return visitor.Visit(this);
       }
    }
 
    public class ZeroRegex : SimpleRegex
    {
+      protected ZeroRegex() {}
+
+      private readonly static ZeroRegex _sInstance = new ZeroRegex();
+
+      static ZeroRegex() { }
+
+      public static ZeroRegex Instance { get { return _sInstance; } }
+
       internal override HashSet<SimpleRegex> PartialDeriv(char c)
       {
          return new HashSet<SimpleRegex>();
@@ -2038,15 +2645,15 @@ namespace SimpleRegexIntersector
          return EmptyCharArray;
       }
 
-      public override string ToString()
+      internal override StringBuilder ToString(StringBuilder builder, bool asUnit)
       {
-         return @"\0";
+         return builder.Append('∅');
       }
 
       // again, really a singleton.. 
       public override bool Equals(object obj)
       {
-         return this is ZeroRegex;
+         return obj is ZeroRegex;
       }
 
       public override int GetHashCode()
@@ -2059,12 +2666,18 @@ namespace SimpleRegexIntersector
          return f(this);
       }
 
+      public override T Accept<T>(IRegexVisitor<T> visitor)
+      {
+         return visitor.Visit(this);
+      }
+
       // not(0) = a | b | .. | empty
       // not(not(0)) = not(a) & not(b) & ... & not(empty) = 0
       // 
       internal override SimpleRegex Negate()
       {
-         return Choice(Complete, Empty);
+         return Star(Complete);
+         //return Choice(Complete, Empty);
       }
    }
 

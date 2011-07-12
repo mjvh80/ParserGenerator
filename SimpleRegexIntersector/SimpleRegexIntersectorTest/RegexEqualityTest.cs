@@ -58,7 +58,12 @@ namespace SimpleRegexIntersectorTest
       {
          // New Test
          SimpleRegexBuilder tBuilder = _GetBuilder(left, right);
-         if (!tBuilder.Parse(left).Intersects(tBuilder.Parse(right)))
+         AssertIntersects(tBuilder.Parse(left), tBuilder.Parse(right));
+      }
+
+      private void AssertIntersects(SimpleRegex left, SimpleRegex right)
+      {
+         if (!left.Intersects((right)))
             throw new Exception(String.Format("[BUILDER] {0} does not intersect {1}: assertion failure", left, right));
       }
 
@@ -66,7 +71,12 @@ namespace SimpleRegexIntersectorTest
       {
          // New Test
          SimpleRegexBuilder tBuilder = _GetBuilder(left, right);
-         if (tBuilder.Parse(left).Intersects(tBuilder.Parse(right)))
+         AssertDoesNotIntersect(tBuilder.Parse(left), tBuilder.Parse(right));
+      }
+
+      private void AssertDoesNotIntersect(SimpleRegex left, SimpleRegex right)
+      {
+         if (left.Intersects(right))
             throw new Exception(String.Format("[BUILDER] {0} intersects {1}: assertion failure", left, right));
       }
 
@@ -95,7 +105,7 @@ namespace SimpleRegexIntersectorTest
       [TestMethod]
       public void TestRegexEquality()
       {
-         AssertRegexEquals(".", "~a|a");
+         AssertRegexEquals(".*", "~a|a");
          AssertRegexEquals("a", "a");
          AssertRegexEquals("~a", "~a");
          AssertRegexEquals("abc", "[a-a]bc");
@@ -103,7 +113,7 @@ namespace SimpleRegexIntersectorTest
          AssertRegexEquals("a+", "aa*");
          AssertRegexEquals("a|b", "b|a");
          AssertRegexEquals("a?a*", "a*");
-         AssertRegexEquals("(a|[^a])b", ".b");
+         AssertRegexEquals("(a|[^a])b", ".b"); // todo: needs work in range rewriting which should not contain empty !
       }
 
       [TestMethod]
@@ -117,8 +127,32 @@ namespace SimpleRegexIntersectorTest
          AssertIntersects("a*", "a+");
          AssertIntersects("a?", "a+");
          AssertIntersects("~[a-c]", "d");
+         AssertDoesNotIntersect("~[a-d]", "d");
          AssertIntersects("~(a|b)", "d");
          AssertIntersects("abcd", "a[b-c]*d");
+         AssertIntersects("~(a|b)", "a|b*"); // note that bb matches both
+
+         SimpleRegexBuilder tBuilder = _GetBuilder("(a|b|c|d)", "~e");
+         SimpleRegex tLeft = tBuilder.Parse("(a|b|c|d)");
+         SimpleRegex tRight = tBuilder.AndNot(tLeft, tBuilder.Parse("e"));
+         AssertIntersects(tLeft, tRight); // actually succeeds without rewrite/normalization
+
+         tBuilder = _GetBuilder("[a-z]", "~a");
+         tLeft = tBuilder.Parse("[a-z]");
+         tRight = tBuilder.AndNot(tLeft, tBuilder.Parse("a"));
+         AssertIntersects(tLeft, tRight);
+
+         // One that was failing.
+         String tNameStartChar = "[a-e]";
+         String tNameChar = "[0-9]";
+
+         String tQName = "[a-d]*"; // String.Format("[a-z]*");// String.Format("({0})({0}|{1})*(:({0})({0}|{1})*)?", tNameStartChar, tNameChar);
+         tBuilder = _GetBuilder(tQName, "cd|ba");
+         tLeft = tBuilder.AndNot(tBuilder.Parse(tQName), tBuilder.Parse("cd"));
+         tRight = tBuilder.Parse("ba");
+         var tCd = tBuilder.Parse("cd");
+         AssertDoesNotIntersect(tLeft, tCd);
+         AssertIntersects(tLeft, tRight);
       }
 
       [TestMethod]
@@ -128,7 +162,7 @@ namespace SimpleRegexIntersectorTest
          AssertDoesNotIntersect("a", "b");
          AssertDoesNotIntersect("a|b", "c|d");
          AssertDoesNotIntersect("~a", "a");
-         AssertDoesNotIntersect("~(a|b)", "a|b*");
+         
          AssertDoesNotIntersect("a|b|c", "[g-m]");
 
          AssertDoesNotIntersect("[0-9]+", @"(\.[0-9]+)|([0-9]+\.[0-9]*)");
