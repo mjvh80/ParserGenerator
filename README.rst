@@ -1,4 +1,3 @@
-
 Overview
 ========
 
@@ -12,7 +11,9 @@ For example, a very simple expression language:::
          Define(() => Constant, () => Digit.OneOrMore()); //> emit list of digits (1 or more)
          Define(() => Digit, () => "1|2|3|4|5|6|7|8|9|0".Terminal());
 
-The resulting graph can be "flattened" and compiled easily using .NET Expression trees, for example.		 
+The resulting graph can be "flattened" and compiled easily using .NET Expression trees, for example.
+
+NOTE: currently this is not finished. I do intend to finish this at some point, but it grew a little bigger than initially anticipated.
 		 
 License
 =======
