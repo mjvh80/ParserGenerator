@@ -1,3 +1,5 @@
+** This project is not currently functional. Unfortunately it grew a little too big for me to handle in my spare time, but hopefully I can at some point pick it back up. **
+
 Overview
 ========
 
